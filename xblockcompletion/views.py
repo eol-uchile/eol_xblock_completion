@@ -11,7 +11,6 @@ from django.http import Http404, HttpResponse, JsonResponse
 from collections import OrderedDict, defaultdict
 from django.contrib.auth import get_user_model
 from xmodule.modulestore.django import modulestore
-from lms.djangoapps.courseware.user_state_client import DjangoXBlockUserStateClient
 from lms.djangoapps.course_blocks.api import get_course_blocks
 from lms.djangoapps.instructor_task.tasks_helper.grades import  ProblemResponses
 from lms.djangoapps.instructor_analytics.basic import list_problem_responses, get_response_state
@@ -138,7 +137,7 @@ class XblockCompletionView(View):
                                             block_item = store.get_item(block_key)
                                             generated_report_data = defaultdict(list)
                                             if not is_resumen:
-                                                generated_report_data = self.get_report_xblock(block_key, max_count, block_item)
+                                                generated_report_data = self.get_report_xblock(block_key, student_states[block['id']], block_item)
                                             if generated_report_data is None:
                                                 continue
 
@@ -268,29 +267,18 @@ class XblockCompletionView(View):
             students[user['username']] = {'email': user['email'], 'rut': user['edxloginuser__run'] if 'edxloginuser__run' in user else ''}
         return students
     
-    def get_report_xblock(self, block_key, max_count, block):
+    def get_report_xblock(self, block_key, user_states, block):
         """
         # Blocks can implement the generate_report_data method to provide their own
         # human-readable formatting for user state.
         """
         generated_report_data = defaultdict(list)
-        user_state_client = DjangoXBlockUserStateClient()
 
         if block_key.block_type != 'problem':
             return None
         elif hasattr(block, 'generate_report_data'):
             try:
-                user_state_iterator = user_state_client.iter_all_for_block(block_key)
-                for username, state in block.generate_report_data(user_state_iterator, max_count):
-                    """
-                        state = {
-                            _("Answer ID"): answer_id,
-                            _("Question"): question_text,
-                            _("Answer"): answer_text,
-                        }
-                        if correct_answer_text is not None:
-                            state[_("Correct Answer")] = correct_answer_text
-                    """
+                for username, state in self.generate_report_data(user_states, block):
                     generated_report_data[username].append(state)
             except NotImplementedError:
                 logger.info('XblockCompletion - block {} dont have implemented generate_report_data'.format(str(block_key)))
@@ -310,3 +298,90 @@ class XblockCompletionView(View):
         writer.writerows(data_student)
 
         return response
+    
+    def generate_report_data(self, user_states, block):
+        """
+        Return a list of student responses to this block in a readable way.
+        Arguments:
+            user_state_iterator: iterator over UserStateClient objects.
+                E.g. the result of user_state_client.iter_all_for_block(block_key)
+            limit_responses (int|None): maximum number of responses to include.
+                Set to None (default) to include all.
+        Returns:
+            each call returns a tuple like:
+            ("username", {
+                           "Question": "2 + 2 equals how many?",
+                           "Answer": "Four",
+                           "Answer ID": "98e6a8e915904d5389821a94e48babcf_10_1"
+            })
+        """
+        from capa.capa_problem import LoncapaProblem, LoncapaSystem
+
+        if block.category != 'problem':
+            raise NotImplementedError()
+
+        capa_system = LoncapaSystem(
+            ajax_url=None,
+            # TODO set anonymous_student_id to the anonymous ID of the user which answered each problem
+            # Anonymous ID is required for Matlab, CodeResponse, and some custom problems that include
+            # '$anonymous_student_id' in their XML.
+            # For the purposes of this report, we don't need to support those use cases.
+            anonymous_student_id=None,
+            cache=None,
+            can_execute_unsafe_code=lambda: None,
+            get_python_lib_zip=None,
+            DEBUG=None,
+            filestore=block.runtime.resources_fs,
+            i18n=block.runtime.service(block, "i18n"),
+            node_path=None,
+            render_template=None,
+            seed=1,
+            STATIC_URL=None,
+            xqueue=None,
+            matlab_api_key=None,
+        )
+
+        for response in user_states:
+            user_state = json.loads(response['state'])
+            if 'student_answers' not in user_state:
+                continue
+
+            lcp = LoncapaProblem(
+                problem_text=block.data,
+                id=block.location.html_id(),
+                capa_system=capa_system,
+                # We choose to run without a fully initialized CapaModule
+                capa_module=None,
+                state={
+                    'done': user_state.get('done'),
+                    'correct_map': user_state.get('correct_map'),
+                    'student_answers': user_state.get('student_answers'),
+                    'has_saved_answers': user_state.get('has_saved_answers'),
+                    'input_state': user_state.get('input_state'),
+                    'seed': user_state.get('seed'),
+                },
+                seed=user_state.get('seed'),
+                # extract_tree=False allows us to work without a fully initialized CapaModule
+                # We'll still be able to find particular data in the XML when we need it
+                extract_tree=False,
+            )
+
+            for answer_id, orig_answers in lcp.student_answers.items():
+                # Some types of problems have data in lcp.student_answers that isn't in lcp.problem_data.
+                # E.g. formulae do this to store the MathML version of the answer.
+                # We exclude these rows from the report because we only need the text-only answer.
+                if answer_id.endswith('_dynamath'):
+                    continue
+
+                question_text = lcp.find_question_label(answer_id)
+                answer_text = lcp.find_answer_text(answer_id, current_answer=orig_answers)
+                correct_answer_text = lcp.find_correct_answer_text(answer_id)
+
+                report = {
+                    _("Answer ID"): answer_id,
+                    _("Question"): question_text,
+                    _("Answer"): answer_text,
+                }
+                if correct_answer_text is not None:
+                    report[_("Correct Answer")] = correct_answer_text
+                yield (response['username'], report)
