@@ -76,7 +76,7 @@ class TestXblockCompletionView(ModuleStoreTestCase):
                 email='student@edx.org')
             # Enroll the student in the course
             CourseEnrollmentFactory(
-                user=self.student, course_id=self.course.id)
+                user=self.student, course_id=self.course.id, mode='honor')
             self.client_student.login(
                 username='student', password='test')
     
@@ -163,14 +163,15 @@ class TestXblockCompletionView(ModuleStoreTestCase):
             student=self.student,
             course_id=self.course.id,
             module_type='problem',
-            state='{"score": {"raw_earned": 0, "raw_possible": 3}, "seed": 1}')
+            state='{"score": {"raw_earned": 0, "raw_possible": 3}, "seed": 1, "attempts":1}')
         module.save()
         response = self.client_instructor.get(reverse('xblockcompletion-data:data'), data)
         self.assertEqual(response.status_code, 200)
         content = [x.decode() for x in response._container]
-        self.assertEqual(content[1], 'Titulo;block_id;Username;Email;Run;Seccion;SubSeccion;Unidad;Intentos;Pts Ganados;Pts Posibles;State\r\n')
-        aux_response = self.items[0].display_name + ';' + str(self.items[0].location)+ ';' + self.student.username + ';' + self.student.email+ ';;1.' + self.chapter.display_name+ ';' + '1.1.' + self.section.display_name+ ';1.1.1.' + self.subsection.display_name + ';0;0;3;'
+        self.assertEqual(content[1], 'Titulo;Username;Email;Run;Seccion;SubSeccion;Unidad;Intentos;Pts Ganados;Pts Posibles;State;block_id\r\n')
+        aux_response = self.items[0].display_name + ';' + self.student.username + ';' + self.student.email+ ';;1.' + self.chapter.display_name+ ';' + '1.1.' + self.section.display_name+ ';1.1.1.' + self.subsection.display_name + ';1;0;3;'
         self.assertTrue(aux_response in content[2])
+        self.assertEqual(len(content), 3)
     
     @patch("xblockcompletion.views.XblockCompletionView.get_report_xblock")
     def test_xblockcompletion_get_all_data(self, report):
@@ -204,10 +205,10 @@ class TestXblockCompletionView(ModuleStoreTestCase):
         response = self.client_instructor.get(reverse('xblockcompletion-data:data'), data)
         self.assertEqual(response.status_code, 200)
         content = [x.decode() for x in response._container]
-        self.assertEqual(content[1], 'Titulo;block_id;Username;Email;Run;Seccion;SubSeccion;Unidad;Pregunta;Respuesta Estudiante;Resp. Correcta;Intentos;Pts Ganados;Pts Posibles;Pts Total Componente\r\n')
-        aux_response = self.items[0].display_name + ';' + str(self.items[0].location)+ ';' + self.student.username + ';' + self.student.email+ ';;1.' + self.chapter.display_name+ ';' + '1.1.' + self.section.display_name+ ';1.1.1.' + self.subsection.display_name
-        aux_response_1 = aux_response + ';question_text;answer_text;correct_answer_text;1;0;1.0;3\r\n'
-        aux_response_2 = aux_response + ';question_text;correct_answer_text;correct_answer_text;1;1.0;1.0;3\r\n'
+        self.assertEqual(content[1], 'Titulo;Username;Email;Run;Seccion;SubSeccion;Unidad;Pregunta;Respuesta Estudiante;Resp. Correcta;Intentos;Pts Ganados;Pts Posibles;Pts Total Componente;block_id\r\n')
+        aux_response = self.items[0].display_name + ';' + self.student.username + ';' + self.student.email+ ';;1.' + self.chapter.display_name+ ';' + '1.1.' + self.section.display_name+ ';1.1.1.' + self.subsection.display_name
+        aux_response_1 = aux_response + ';question_text;answer_text;correct_answer_text;1;0;1.0;3'+ ';' + str(self.items[0].location)+'\r\n'
+        aux_response_2 = aux_response + ';question_text;correct_answer_text;correct_answer_text;1;1.0;1.0;3'+ ';' + str(self.items[0].location)+'\r\n'
         self.assertEqual(aux_response_1, content[2])
         self.assertEqual(aux_response_2, content[3])
         self.assertEqual(aux_response_1, content[4])
@@ -233,10 +234,8 @@ class TestXblockCompletionView(ModuleStoreTestCase):
         response = self.client_instructor.get(reverse('xblockcompletion-data:data'), data)
         self.assertEqual(response.status_code, 200)
         content = [x.decode() for x in response._container]
-        self.assertEqual(content[1], 'Titulo;block_id;Username;Email;Run;Seccion;SubSeccion;Unidad;Pregunta;Respuesta Estudiante;Resp. Correcta;Intentos;Pts Ganados;Pts Posibles;Pts Total Componente\r\n')
-        aux_response = self.items[0].display_name + ';' + str(self.items[0].location)+ ';' + self.student.username + ';' + self.student.email+ ';;1.' + self.chapter.display_name+ ';' + '1.1.' + self.section.display_name+ ';1.1.1.' + self.subsection.display_name
-        aux_response_1 = aux_response + ';;;;0;0;3;3\r\n'
-        self.assertEqual(aux_response_1, content[2])
+        self.assertEqual(content[1], 'Titulo;Username;Email;Run;Seccion;SubSeccion;Unidad;Pregunta;Respuesta Estudiante;Resp. Correcta;Intentos;Pts Ganados;Pts Posibles;Pts Total Componente;block_id\r\n')
+        self.assertEqual(len(content), 2)
     
     def test_xblockcompletion_no_data_format(self):
         """

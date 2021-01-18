@@ -26,6 +26,7 @@ import unicodecsv as csv
 from lms.djangoapps.courseware.models import StudentModule
 from courseware.courses import get_course_by_id, get_course_with_access
 from courseware.access import has_access
+from opaque_keys import InvalidKeyError
 logger = logging.getLogger(__name__)
 
 class XblockCompletionView(View):
@@ -63,6 +64,9 @@ class XblockCompletionView(View):
             return False
 
     def validate_and_get_data(self, request):
+        """
+            Verify format and course id
+        """
         data = {'format': None, 'course': None}
         aux_resumen = request.GET.get('format', '')
         if aux_resumen == 'resumen':
@@ -89,8 +93,11 @@ class XblockCompletionView(View):
             return False
 
     def get_all_states(self, course_id, filter_types):
+        """
+            Get all student module of course
+        """
         course_key = CourseKey.from_string(course_id)
-        smdat = StudentModule.objects.filter(course_id=course_key, module_type__in=filter_types).values('student__username', 'state', 'module_state_key')
+        smdat = StudentModule.objects.filter(course_id=course_key, module_type__in=filter_types).order_by('student__username').values('student__username', 'state', 'module_state_key')
         response = defaultdict(list)
         for module in smdat:
             response[str(module['module_state_key'])].append({'username': module['student__username'], 'state': module['state']})
@@ -98,19 +105,22 @@ class XblockCompletionView(View):
         return response
 
     def _build_student_data(self,students, course_structure, is_resumen, course_id):
+        """
+            Create list of list to make csv report
+        """
         course_key = CourseKey.from_string(course_id)
         filter_types = ['problem']
         if is_resumen:
-            student_data = [['Titulo', 'block_id', 'Username', 'Email', 'Run', 'Seccion', 'SubSeccion', 'Unidad', 'Intentos', 'Pts Ganados', 'Pts Posibles', 'State']]
+            student_data = [['Titulo', 'Username', 'Email', 'Run', 'Seccion', 'SubSeccion', 'Unidad', 'Intentos', 'Pts Ganados', 'Pts Posibles', 'State', 'block_id']]
         else:
-            student_data = [['Titulo', 'block_id', 'Username', 'Email', 'Run', 'Seccion', 'SubSeccion', 'Unidad', 'Pregunta', 'Respuesta Estudiante', 'Resp. Correcta', 'Intentos', 'Pts Ganados', 'Pts Posibles', 'Pts Total Componente']]
+            student_data = [['Titulo', 'Username', 'Email', 'Run', 'Seccion', 'SubSeccion', 'Unidad', 'Pregunta', 'Respuesta Estudiante', 'Resp. Correcta', 'Intentos', 'Pts Ganados', 'Pts Posibles', 'Pts Total Componente', 'block_id']]
         max_count = None
         store = modulestore()
         i=0
         j=0
         k=0
         student_states = self.get_all_states(course_id, filter_types)
-        if 'child_info' in course_structure:
+        if 'child_info' in course_structure and len(student_states) > 0:
             for section in course_structure['child_info']['children']:
                 i = i + 1
                 if 'child_info' in section:
@@ -131,7 +141,7 @@ class XblockCompletionView(View):
                                                 generated_report_data = self.get_report_xblock(block_key, max_count, block_item)
                                             if generated_report_data is None:
                                                 continue
-                                            
+
                                             for response in student_states[block['id']]:
                                                 if response['username'] not in students:
                                                     continue
@@ -139,7 +149,6 @@ class XblockCompletionView(View):
                                                     if block_key.block_type != 'problem':
                                                         pass
                                                     else:
-                                                        raw_state = json.loads(response['state'])
                                                         responses = self.set_data_is_resumen(
                                                             block_item.display_name, 
                                                             block['id'],
@@ -149,120 +158,124 @@ class XblockCompletionView(View):
                                                             str(i) + '.' + str(j) + '.' + str(k) + '.' + unit['display_name'],
                                                             students
                                                             )
-                                                        student_data.append(responses)
+                                                        if responses:
+                                                            student_data.append(responses)
                                                 else:
                                                     # A human-readable location for the current block
                                                     # A machine-friendly location for the current block
                                                     # A block that has a single state per user can contain multiple responses
                                                     # within the same state.
-                                                    user_states = generated_report_data.get(response['username'])
-                                                    responses = self.set_data_is_all(
-                                                            block_item.display_name, 
-                                                            block['id'],
-                                                            response,
-                                                            str(i) + '.' + section['display_name'],
-                                                            str(i) + '.' + str(j) + '.' + subsection['display_name'],
-                                                            str(i) + '.' + str(j) + '.' + str(k) + '.' + unit['display_name'],
-                                                            students,
-                                                            user_states
-                                                            )
-                                                    if user_states:
-                                                        student_data = student_data + responses
+                                                    if block_key.block_type != 'problem':
+                                                        pass
                                                     else:
-                                                        student_data.append(responses)
-        
+                                                        user_states = generated_report_data.get(response['username'])
+                                                        if user_states:
+                                                            responses = self.set_data_is_all(
+                                                                    block_item.display_name, 
+                                                                    block['id'],
+                                                                    response,
+                                                                    str(i) + '.' + section['display_name'],
+                                                                    str(i) + '.' + str(j) + '.' + subsection['display_name'],
+                                                                    str(i) + '.' + str(j) + '.' + str(k) + '.' + unit['display_name'],
+                                                                    students,
+                                                                    user_states
+                                                                    )
+                                                            if responses:
+                                                                student_data = student_data + responses
         return student_data
 
     def set_data_is_resumen(self, title, block_id, response, section, subsection, unit, students):
+        """
+            Create a row according 
+            ['Titulo', 'Username', 'Email', 'Run', 'Seccion', 'SubSeccion', 'Unidad', 'Intentos', 'Pts Ganados', 'Pts Posibles', 'State', 'block_id']
+        """
         raw_state = json.loads(response['state'])
-        responses = [
-            title, 
-            block_id,
-            response['username'], 
-            students[response['username']]['email'], 
-            students[response['username']]['rut'],
-            section,
-            subsection,
-            unit,
-            raw_state['attempts'] if 'attempts' in raw_state else '0',
-            raw_state['score']['raw_earned'],
-            raw_state['score']['raw_possible'],
-            response['state']
-            ]
-        return responses
-    
-    def set_data_is_all(self, title, block_id, response, section, subsection, unit, students, user_states):
-        raw_state = json.loads(response['state'])
-        # calcular puntos ganados y posibles
-        aux_response = []
-        if user_states:
-            # For each response in the block, copy over the basic data like the
-            # title, location, block_key and state, and add in the responses
-            pts_question = int(raw_state['score']['raw_possible']) / len(user_states)
-            for user_state in user_states:
-                responses = [
-                    title, 
-                    block_id,
-                    response['username'], 
-                    students[response['username']]['email'], 
-                    students[response['username']]['rut'],
-                    section,
-                    subsection,
-                    unit,
-                    user_state[_("Question")],
-                    user_state[_("Answer")],
-                    user_state[_("Correct Answer")] or '0',
-                    raw_state['attempts'],
-                    pts_question if int(raw_state['score']['raw_earned']) > 0 and user_state[_("Answer")] == user_state[_("Correct Answer")] else '0',
-                    pts_question,
-                    raw_state['score']['raw_possible']
-                    ]
-                aux_response.append(responses)
-            return aux_response
-        else:
+        responses = []
+        if 'attempts' in raw_state:
             responses = [
                 title,
-                block_id,
                 response['username'], 
                 students[response['username']]['email'], 
                 students[response['username']]['rut'],
                 section,
                 subsection,
                 unit,
-                '',
-                '',
-                '',
-                raw_state['attempts'] if 'attempts' in raw_state else '0',
+                raw_state['attempts'] ,
                 raw_state['score']['raw_earned'],
                 raw_state['score']['raw_possible'],
-                raw_state['score']['raw_possible']
+                response['state'],
+                block_id
                 ]
-            return responses
+
+        return responses
+    
+    def set_data_is_all(self, title, block_id, response, section, subsection, unit, students, user_states):
+        """
+            Create a row according 
+            ['Titulo', 'Username', 'Email', 'Run', 'Seccion', 'SubSeccion', 'Unidad', 'Pregunta', 'Respuesta Estudiante', 'Resp. Correcta', 'Intentos', 'Pts Ganados', 'Pts Posibles', 'Pts Total Componente', 'block_id']
+        """
+        raw_state = json.loads(response['state'])
+        if 'attempts' not in raw_state:
+            return []
+        aux_response = []
+
+        # For each response in the block, copy over the basic data like the
+        # title, location, block_key and state, and add in the responses
+        pts_question = int(raw_state['score']['raw_possible']) / len(user_states)
+        for user_state in user_states:
+            correct_answer = ''
+            if _("Correct Answer") in user_state:
+                correct_answer = user_state[_("Correct Answer")]
+            responses = [
+                title,
+                response['username'], 
+                students[response['username']]['email'], 
+                students[response['username']]['rut'],
+                section,
+                subsection,
+                unit,
+                user_state[_("Question")],
+                user_state[_("Answer")],
+                correct_answer,
+                raw_state['attempts'],
+                pts_question if int(raw_state['score']['raw_earned']) > 0 and user_state[_("Answer")] == correct_answer else '0',
+                pts_question,
+                raw_state['score']['raw_possible'],
+                block_id
+                ]
+            aux_response.append(responses)
+        return aux_response
 
     def get_all_enrolled_users(self, course_key):
-        students = {}#OrderedDict?
+        """
+            Get all enrolled student 
+        """
+        students = {}
         try:
             enrolled_students = User.objects.filter(
                 courseenrollment__course_id=course_key,
                 courseenrollment__is_active=1,
-                #courseenrollment__mode='honor'
-            ).order_by('username').values('username', 'email', 'edxloginuser__run')
+                courseenrollment__mode='honor'
+            ).values('username', 'email', 'edxloginuser__run')
         except FieldError:
             enrolled_students = User.objects.filter(
                 courseenrollment__course_id=course_key,
                 courseenrollment__is_active=1,
-                #courseenrollment__mode='honor'
-            ).order_by('username').values('username', 'email')
+                courseenrollment__mode='honor'
+            ).values('username', 'email')
         
         for user in enrolled_students:
             students[user['username']] = {'email': user['email'], 'rut': user['edxloginuser__run'] if 'edxloginuser__run' in user else ''}
         return students
     
     def get_report_xblock(self, block_key, max_count, block):
-        generated_report_data = defaultdict(list)
-        user_state_client = DjangoXBlockUserStateClient()
+        """
         # Blocks can implement the generate_report_data method to provide their own
         # human-readable formatting for user state.
+        """
+        generated_report_data = defaultdict(list)
+        user_state_client = DjangoXBlockUserStateClient()
+
         if block_key.block_type != 'problem':
             return None
         elif hasattr(block, 'generate_report_data'):
