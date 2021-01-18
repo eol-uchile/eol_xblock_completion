@@ -22,6 +22,7 @@ import requests
 import json
 import logging
 import unicodecsv as csv
+from django.urls import reverse
 from lms.djangoapps.courseware.models import StudentModule
 from courseware.courses import get_course_by_id, get_course_with_access
 from courseware.access import has_access
@@ -45,7 +46,7 @@ class XblockCompletionView(View):
             course_id = data['course']
             students = self.get_all_enrolled_users(course_id)
             course_structure = get_data_course(course_id)
-            student_data = self._build_student_data(students, course_structure, data['format'], course_id)
+            student_data = self._build_student_data(request, students, course_structure, data['format'], course_id)
             return self.export(student_data)
         else:
             logger.error("XblockCompletion - User is Anonymous")
@@ -103,16 +104,16 @@ class XblockCompletionView(View):
 
         return response
 
-    def _build_student_data(self,students, course_structure, is_resumen, course_id):
+    def _build_student_data(self, request, students, course_structure, is_resumen, course_id):
         """
             Create list of list to make csv report
         """
         course_key = CourseKey.from_string(course_id)
         filter_types = ['problem']
         if is_resumen:
-            student_data = [['Titulo', 'Username', 'Email', 'Run', 'Seccion', 'SubSeccion', 'Unidad', 'Intentos', 'Pts Ganados', 'Pts Posibles', 'State', 'block_id']]
+            student_data = [['Titulo', 'Username', 'Email', 'Run', 'Seccion', 'SubSeccion', 'Unidad', 'Intentos', 'Pts Ganados', 'Pts Posibles', 'Url', 'State', 'block_id']]
         else:
-            student_data = [['Titulo', 'Username', 'Email', 'Run', 'Seccion', 'SubSeccion', 'Unidad', 'Pregunta', 'Respuesta Estudiante', 'Resp. Correcta', 'Intentos', 'Pts Ganados', 'Pts Posibles', 'Pts Total Componente', 'block_id']]
+            student_data = [['Titulo', 'Username', 'Email', 'Run', 'Seccion', 'SubSeccion', 'Unidad', 'Pregunta', 'Respuesta Estudiante', 'Resp. Correcta', 'Intentos', 'Pts Ganados', 'Pts Posibles', 'Pts Total Componente', 'Url', 'block_id']]
         max_count = None
         store = modulestore()
         i=0
@@ -140,7 +141,11 @@ class XblockCompletionView(View):
                                                 generated_report_data = self.get_report_xblock(block_key, student_states[block['id']], block_item)
                                             if generated_report_data is None:
                                                 continue
-
+                                            jumo_to_url = request.build_absolute_uri(reverse(
+                                                    'jump_to',
+                                                    kwargs={
+                                                        'course_id': course_id,
+                                                        'location': block['id']}))
                                             for response in student_states[block['id']]:
                                                 if response['username'] not in students:
                                                     continue
@@ -155,7 +160,7 @@ class XblockCompletionView(View):
                                                             str(i) + '.' + section['display_name'],
                                                             str(i) + '.' + str(j) + '.' + subsection['display_name'],
                                                             str(i) + '.' + str(j) + '.' + str(k) + '.' + unit['display_name'],
-                                                            students
+                                                            students, jumo_to_url
                                                             )
                                                         if responses:
                                                             student_data.append(responses)
@@ -177,16 +182,16 @@ class XblockCompletionView(View):
                                                                     str(i) + '.' + str(j) + '.' + subsection['display_name'],
                                                                     str(i) + '.' + str(j) + '.' + str(k) + '.' + unit['display_name'],
                                                                     students,
-                                                                    user_states
+                                                                    user_states, jumo_to_url
                                                                     )
                                                             if responses:
                                                                 student_data = student_data + responses
         return student_data
 
-    def set_data_is_resumen(self, title, block_id, response, section, subsection, unit, students):
+    def set_data_is_resumen(self, title, block_id, response, section, subsection, unit, students, jumo_to_url):
         """
             Create a row according 
-            ['Titulo', 'Username', 'Email', 'Run', 'Seccion', 'SubSeccion', 'Unidad', 'Intentos', 'Pts Ganados', 'Pts Posibles', 'State', 'block_id']
+            ['Titulo', 'Username', 'Email', 'Run', 'Seccion', 'SubSeccion', 'Unidad', 'Intentos', 'Pts Ganados', 'Pts Posibles','url', 'State', 'block_id']
         """
         raw_state = json.loads(response['state'])
         responses = []
@@ -202,13 +207,14 @@ class XblockCompletionView(View):
                 raw_state['attempts'] ,
                 raw_state['score']['raw_earned'],
                 raw_state['score']['raw_possible'],
+                jumo_to_url,
                 response['state'],
                 block_id
                 ]
 
         return responses
     
-    def set_data_is_all(self, title, block_id, response, section, subsection, unit, students, user_states):
+    def set_data_is_all(self, title, block_id, response, section, subsection, unit, students, user_states, jumo_to_url):
         """
             Create a row according 
             ['Titulo', 'Username', 'Email', 'Run', 'Seccion', 'SubSeccion', 'Unidad', 'Pregunta', 'Respuesta Estudiante', 'Resp. Correcta', 'Intentos', 'Pts Ganados', 'Pts Posibles', 'Pts Total Componente', 'block_id']
@@ -240,6 +246,7 @@ class XblockCompletionView(View):
                 pts_question if int(raw_state['score']['raw_earned']) > 0 and user_state[_("Answer")] == correct_answer else '0',
                 pts_question,
                 raw_state['score']['raw_possible'],
+                jumo_to_url,
                 block_id
                 ]
             aux_response.append(responses)
@@ -253,14 +260,12 @@ class XblockCompletionView(View):
         try:
             enrolled_students = User.objects.filter(
                 courseenrollment__course_id=course_key,
-                courseenrollment__is_active=1,
-                courseenrollment__mode='honor'
+                courseenrollment__is_active=1
             ).values('username', 'email', 'edxloginuser__run')
         except FieldError:
             enrolled_students = User.objects.filter(
                 courseenrollment__course_id=course_key,
-                courseenrollment__is_active=1,
-                courseenrollment__mode='honor'
+                courseenrollment__is_active=1
             ).values('username', 'email')
         
         for user in enrolled_students:
