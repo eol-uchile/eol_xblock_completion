@@ -27,34 +27,115 @@ from lms.djangoapps.courseware.models import StudentModule
 from courseware.courses import get_course_by_id, get_course_with_access
 from courseware.access import has_access
 from opaque_keys import InvalidKeyError
+from celery import current_task, task
+from lms.djangoapps.instructor_task.tasks_base import BaseInstructorTask
+from lms.djangoapps.instructor_task.api_helper import submit_task
+from functools import partial
+from time import time
+from pytz import UTC
+from datetime import datetime
+from lms.djangoapps.instructor_task.tasks_helper.runner import run_main_task, TaskProgress
+from django.utils.translation import ugettext_noop
+from lms.djangoapps.instructor_task.tasks_helper.utils import upload_csv_to_report_store
+from django.db import IntegrityError, transaction
 logger = logging.getLogger(__name__)
+
+def task_process_data(request, data):
+    course_key = CourseKey.from_string(data['course'])
+    task_type = 'EOL_Xblock_Completion'
+    task_class = process_data
+    task_input = {'data': data }
+    task_key = ""
+
+    return submit_task(
+        request,
+        task_type,
+        task_class,
+        course_key,
+        task_input,
+        task_key)
+
+@task(base=BaseInstructorTask, queue='edx.lms.core.low')
+def process_data(entry_id, xmodule_instance_args):
+    action_name = ugettext_noop('generated')
+    task_fn = partial(generate, xmodule_instance_args)
+
+    return run_main_task(entry_id, task_fn, action_name)
+
+def generate(_xmodule_instance_args, _entry_id, course_id, task_input, action_name):
+    """
+    For a given `course_id`, generate a CSV file containing
+    all student answers to a given problem, and store using a `ReportStore`.
+    """
+    start_time = time()
+    start_date = datetime.now(UTC)
+    num_reports = 1
+    task_progress = TaskProgress(action_name, num_reports, start_time)
+    current_step = {'step': 'XblockCompletion - Calculating students answers to problem'}
+    task_progress.update_task_state(extra_meta=current_step)
+    
+    data = task_input.get('data')
+    students = XblockCompletionView().get_all_enrolled_users(data['course'])
+    course_structure = get_data_course(data['course'])
+    student_data = XblockCompletionView()._build_student_data(data['base_url'], students, course_structure, data['format'], data['course'])
+
+    current_step = {'step': 'XblockCompletion - Uploading CSV'}
+    task_progress.update_task_state(extra_meta=current_step)
+
+    # Perform the upload
+    csv_name = 'Reporte_de_Preguntas'
+    if data['format'] == 'resumen':
+        csv_name = 'Reporte_de_Preguntas_Resumen'
+    report_name = upload_csv_to_report_store(student_data, csv_name, course_id, start_date)
+    current_step = {
+        'step': 'XblockCompletion - CSV uploaded',
+        'report_name': report_name,
+    }
+
+    return task_progress.update_task_state(extra_meta=current_step)
 
 class XblockCompletionView(View):
     """
         Return a csv with progress students
     """
-    
-    def get(self, request):
+    @transaction.non_atomic_requests
+    def dispatch(self, args, **kwargs):
+        return super(XblockCompletionView, self).dispatch(args, **kwargs)
+
+    def get(self, request, **kwargs):
         if not request.user.is_anonymous:
             data = self.validate_and_get_data(request)
             if data['format'] is None:
+                logger.error("XblockCompletion - Falta parametro format o parametro incorrecto, user: {}, format: {}".format(request.user, request.GET.get('format', '')))
                 return JsonResponse({'error': 'Falta parametro format o parametro incorrecto'})
             if data['course'] is None:
+                logger.error("XblockCompletion - Falta parametro course o parametro incorrecto, user: {}, course: {}".format(request.user, request.GET.get('course', '')))
                 return JsonResponse({'error': 'Falta parametro course o parametro incorrecto'})
             elif not self.have_permission(request.user, data['course']):
+                logger.error("XblockCompletion - Usuario no tiene rol para esta funcionalidad, user: {}, course: {}".format(request.user, request.GET.get('course', '')))
                 return JsonResponse({'error': 'Usuario no tiene rol para esta funcionalidad'})
-            course_id = data['course']
-            students = self.get_all_enrolled_users(course_id)
-            course_structure = get_data_course(course_id)
-            student_data = self._build_student_data(request, students, course_structure, data['format'], course_id)
-            return self.export(student_data)
+            data['base_url'] = request.build_absolute_uri('')
+            return self.get_context(request, data)
         else:
             logger.error("XblockCompletion - User is Anonymous")
         raise Http404()
 
+    def get_context(self, request, data):
+        task = task_process_data(request, data)
+        success_status = 'El reporte de preguntas esta siendo creado, en un momento estará disponible para descargar.'
+        return JsonResponse({"status": success_status, "task_id": task.task_id})
+        
+
     def have_permission(self, user, course_id):
         """
             Verify if the user is instructor
+        """
+        """
+        any([
+            request.user.is_staff,
+            CourseStaffRole(course_key).has_user(request.user),
+            CourseInstructorRole(course_key).has_user(request.user)
+        ])
         """
         try:
             course_key = CourseKey.from_string(course_id)
@@ -104,7 +185,7 @@ class XblockCompletionView(View):
 
         return response
 
-    def _build_student_data(self, request, students, course_structure, is_resumen, course_id):
+    def _build_student_data(self, url_base, students, course_structure, is_resumen, course_id):
         """
             Create list of list to make csv report
         """
@@ -141,11 +222,9 @@ class XblockCompletionView(View):
                                                 generated_report_data = self.get_report_xblock(block_key, student_states[block['id']], block_item)
                                             if generated_report_data is None:
                                                 continue
-                                            jumo_to_url = request.build_absolute_uri(reverse(
-                                                    'jump_to',
-                                                    kwargs={
+                                            jumo_to_url = url_base + reverse('jump_to',kwargs={
                                                         'course_id': course_id,
-                                                        'location': block['id']}))
+                                                        'location': block['id']})
                                             for response in student_states[block['id']]:
                                                 if response['username'] not in students:
                                                     continue
@@ -269,7 +348,10 @@ class XblockCompletionView(View):
             ).values('username', 'email')
         
         for user in enrolled_students:
-            students[user['username']] = {'email': user['email'], 'rut': user['edxloginuser__run'] if 'edxloginuser__run' in user else ''}
+            run = ''
+            if 'edxloginuser__run' in user and user['edxloginuser__run'] != None:
+                run = user['edxloginuser__run']
+            students[user['username']] = {'email': user['email'], 'rut': run}
         return students
     
     def get_report_xblock(self, block_key, user_states, block):

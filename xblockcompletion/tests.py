@@ -16,16 +16,16 @@ from xmodule.modulestore import ModuleStoreEnum
 from xmodule.modulestore.tests.django_utils import ModuleStoreTestCase
 from openedx.core.djangoapps.content.course_overviews.models import CourseOverview
 from student.roles import CourseInstructorRole, CourseStaffRole
-from .views import XblockCompletionView
+from .views import XblockCompletionView, generate
 from .utils import get_data_course
 from rest_framework_jwt.settings import api_settings
 from django.test.utils import override_settings
 from django.utils.translation import gettext as _
+from lms.djangoapps.instructor_task.models import ReportStore
 import re
 import json
 import urllib.parse
 import uuid
-
 
 
 class TestXblockCompletionView(ModuleStoreTestCase):
@@ -80,6 +80,19 @@ class TestXblockCompletionView(ModuleStoreTestCase):
             self.client_student.login(
                 username='student', password='test')
     
+    def _verify_csv_file_report(self, report_store, expected_data):
+        """
+        Verify course survey data.
+        """
+        report_csv_filename = report_store.links_for(self.course.id)[0][0]
+        report_path = report_store.path_to(self.course.id, report_csv_filename)
+        with report_store.storage.open(report_path) as csv_file:
+            csv_file_data = csv_file.read()
+            # Removing unicode signature (BOM) from the beginning
+            csv_file_data = csv_file_data.decode("utf-8-sig")
+            for data in expected_data:
+                self.assertIn(data, csv_file_data)
+
     def test_xblockcompletion_get(self):
         """
             Test xblockcompletion view
@@ -151,13 +164,12 @@ class TestXblockCompletionView(ModuleStoreTestCase):
 
     def test_xblockcompletion_get_resumen(self):
         """
-            Test xblockcompletion view resumen data
+        test to generate course survey report
+        and then test the report authenticity.
         """
         from lms.djangoapps.courseware.models import StudentModule
-        data = {
-            'format':'resumen',
-            'course': str(self.course.id)
-        }
+        data = {'format': True, 'course': str(self.course.id), 'base_url':'this_is_a_url'}
+        task_input = {'data': data }
         module = StudentModule(
             module_state_key=self.items[0].location,
             student=self.student,
@@ -165,13 +177,25 @@ class TestXblockCompletionView(ModuleStoreTestCase):
             module_type='problem',
             state='{"score": {"raw_earned": 0, "raw_possible": 3}, "seed": 1, "attempts":1}')
         module.save()
-        response = self.client_instructor.get(reverse('xblockcompletion-data:data'), data)
-        self.assertEqual(response.status_code, 200)
-        content = [x.decode() for x in response._container]
-        self.assertEqual(content[1], 'Titulo;Username;Email;Run;Seccion;SubSeccion;Unidad;Intentos;Pts Ganados;Pts Posibles;Url;State;block_id\r\n')
-        aux_response = self.items[0].display_name + ';' + self.student.username + ';' + self.student.email+ ';;1.' + self.chapter.display_name+ ';' + '1.1.' + self.section.display_name+ ';1.1.1.' + self.subsection.display_name + ';1;0;3;'
-        self.assertTrue(aux_response in content[2])
-        self.assertEqual(len(content), 3)
+        with patch('lms.djangoapps.instructor_task.tasks_helper.runner._get_current_task'):
+            result = generate(
+                None, None, self.course.id,
+                task_input, 'EOL_Xblock_Completion'
+            )
+        report_store = ReportStore.from_config(config_name='GRADES_DOWNLOAD')
+        header_row = ",".join(['Titulo', 'Username', 'Email', 'Run', 'Seccion', 'SubSeccion', 'Unidad', 'Intentos', 'Pts Ganados', 'Pts Posibles', 'Url', 'State', 'block_id'])
+        student1_row = ",".join([
+            self.items[0].display_name,
+            self.student.username,
+            self.student.email,
+            '',
+            '1.' + self.chapter.display_name,
+            '1.1.' + self.section.display_name,
+            '1.1.1.' + self.subsection.display_name,
+            '1','0','3'
+        ])
+        expected_data = [header_row, student1_row]
+        self._verify_csv_file_report(report_store, expected_data)
     
     @patch("xblockcompletion.views.XblockCompletionView.get_report_xblock")
     def test_xblockcompletion_get_all_data(self, report):
@@ -191,10 +215,8 @@ class TestXblockCompletionView(ModuleStoreTestCase):
         generated_report_data = {self.student.username : [state_1,state_2,state_1]}               
         report.return_value = generated_report_data
         from lms.djangoapps.courseware.models import StudentModule
-        data = {
-            'format':'all',
-            'course': str(self.course.id)
-        }
+        data = {'format': False, 'course': str(self.course.id), 'base_url':'this_is_a_url'}
+        task_input = {'data': data }
         module = StudentModule(
             module_state_key=self.items[0].location,
             student=self.student,
@@ -202,40 +224,60 @@ class TestXblockCompletionView(ModuleStoreTestCase):
             module_type='problem',
             state='{"score": {"raw_earned": 1, "raw_possible": 3}, "seed": 1, "attempts": 1}')
         module.save()
-        response = self.client_instructor.get(reverse('xblockcompletion-data:data'), data)
-        self.assertEqual(response.status_code, 200)
-        content = [x.decode() for x in response._container]
-        self.assertEqual(content[1], 'Titulo;Username;Email;Run;Seccion;SubSeccion;Unidad;Pregunta;Respuesta Estudiante;Resp. Correcta;Intentos;Pts Ganados;Pts Posibles;Pts Total Componente;Url;block_id\r\n')
-        aux_response = self.items[0].display_name + ';' + self.student.username + ';' + self.student.email+ ';;1.' + self.chapter.display_name+ ';' + '1.1.' + self.section.display_name+ ';1.1.1.' + self.subsection.display_name
-        aux_response_1 = aux_response + ';question_text;answer_text;correct_answer_text;1;0;1.0;3'
-        aux_response_2 = aux_response + ';question_text;correct_answer_text;correct_answer_text;1;1.0;1.0;3'
-        self.assertTrue(aux_response_1 in content[2])
-        self.assertTrue(aux_response_2 in content[3])
-        self.assertTrue(aux_response_1 in content[4])
+        with patch('lms.djangoapps.instructor_task.tasks_helper.runner._get_current_task'):
+            result = generate(
+                None, None, self.course.id,
+                task_input, 'EOL_Xblock_Completion'
+            )
+        report_store = ReportStore.from_config(config_name='GRADES_DOWNLOAD')
+        header_row = ",".join(['Titulo', 'Username', 'Email', 'Run', 'Seccion', 'SubSeccion', 'Unidad', 'Pregunta', 'Respuesta Estudiante', 'Resp. Correcta', 'Intentos', 'Pts Ganados', 'Pts Posibles', 'Pts Total Componente', 'Url', 'block_id'])
+        base_student_row = ",".join([
+            self.items[0].display_name,
+            self.student.username,
+            self.student.email,
+            '',
+            '1.' + self.chapter.display_name,
+            '1.1.' + self.section.display_name,
+            '1.1.1.' + self.subsection.display_name
+        ])
+        student_row = base_student_row + ',question_text,answer_text,correct_answer_text,1,0,1.0,3'
+        student_row2 = base_student_row + ',question_text,correct_answer_text,correct_answer_text,1,1.0,1.0,3'
+        expected_data = [header_row, student_row, student_row2, student_row]
+        self._verify_csv_file_report(report_store, expected_data)
 
     @patch("xblockcompletion.views.XblockCompletionView.get_report_xblock")
     def test_xblockcompletion_get_all_data_no_responses(self, report):
         """
             Test xblockcompletion view all data when xblock dont have responses yet
         """
-        report.return_value = {}
-        from lms.djangoapps.courseware.models import StudentModule
-        data = {
-            'format':'all',
-            'course': str(self.course.id)
-        }
-        module = StudentModule(
-            module_state_key=self.items[0].location,
-            student=self.student,
-            course_id=self.course.id,
-            module_type='problem',
-            state='{"score": {"raw_earned": 0, "raw_possible": 3}, "seed": 1, "attempts": 0}')
-        module.save()
-        response = self.client_instructor.get(reverse('xblockcompletion-data:data'), data)
-        self.assertEqual(response.status_code, 200)
-        content = [x.decode() for x in response._container]
-        self.assertEqual(content[1], 'Titulo;Username;Email;Run;Seccion;SubSeccion;Unidad;Pregunta;Respuesta Estudiante;Resp. Correcta;Intentos;Pts Ganados;Pts Posibles;Pts Total Componente;Url;block_id\r\n')
-        self.assertEqual(len(content), 2)
+        generated_report_data = {}               
+        report.return_value = generated_report_data
+        data = {'format': False, 'course': str(self.course.id), 'base_url':'this_is_a_url'}
+        task_input = {'data': data }
+        with patch('lms.djangoapps.instructor_task.tasks_helper.runner._get_current_task'):
+            result = generate(
+                None, None, self.course.id,
+                task_input, 'EOL_Xblock_Completion'
+            )
+        report_store = ReportStore.from_config(config_name='GRADES_DOWNLOAD')
+        header_row = ",".join(['Titulo', 'Username', 'Email', 'Run', 'Seccion', 'SubSeccion', 'Unidad', 'Pregunta', 'Respuesta Estudiante', 'Resp. Correcta', 'Intentos', 'Pts Ganados', 'Pts Posibles', 'Pts Total Componente', 'Url', 'block_id'])
+        base_student_row = ",".join([
+            self.items[0].display_name,
+            self.student.username,
+            self.student.email,
+            '',
+            '1.' + self.chapter.display_name,
+            '1.1.' + self.section.display_name,
+            '1.1.1.' + self.subsection.display_name
+        ])
+        report_csv_filename = report_store.links_for(self.course.id)[0][0]
+        report_path = report_store.path_to(self.course.id, report_csv_filename)
+        with report_store.storage.open(report_path) as csv_file:
+            csv_file_data = csv_file.read()
+            # Removing unicode signature (BOM) from the beginning
+            csv_file_data = csv_file_data.decode("utf-8-sig")
+            self.assertIn(header_row, csv_file_data)
+            self.assertFalse(base_student_row in csv_file_data)
     
     def test_xblockcompletion_no_data_format(self):
         """
