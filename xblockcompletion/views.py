@@ -29,7 +29,7 @@ from courseware.access import has_access
 from opaque_keys import InvalidKeyError
 from celery import current_task, task
 from lms.djangoapps.instructor_task.tasks_base import BaseInstructorTask
-from lms.djangoapps.instructor_task.api_helper import submit_task
+from lms.djangoapps.instructor_task.api_helper import submit_task, AlreadyRunningError
 from functools import partial
 from time import time
 from pytz import UTC
@@ -43,6 +43,8 @@ logger = logging.getLogger(__name__)
 def task_process_data(request, data):
     course_key = CourseKey.from_string(data['course'])
     task_type = 'EOL_Xblock_Completion'
+    if data['format']:
+        task_type = 'EOL_Xblock_Completion_Resumen'
     task_class = process_data
     task_input = {'data': data }
     task_key = ""
@@ -84,7 +86,7 @@ def generate(_xmodule_instance_args, _entry_id, course_id, task_input, action_na
 
     # Perform the upload
     csv_name = 'Reporte_de_Preguntas'
-    if data['format'] == 'resumen':
+    if data['format']:
         csv_name = 'Reporte_de_Preguntas_Resumen'
     report_name = upload_csv_to_report_store(student_data, csv_name, course_id, start_date)
     current_step = {
@@ -121,10 +123,13 @@ class XblockCompletionView(View):
         raise Http404()
 
     def get_context(self, request, data):
-        task = task_process_data(request, data)
-        success_status = 'El reporte de preguntas esta siendo creado, en un momento estará disponible para descargar.'
-        return JsonResponse({"status": success_status, "task_id": task.task_id})
-        
+        try:
+            task = task_process_data(request, data)
+            success_status = 'El reporte de preguntas esta siendo creado, en un momento estará disponible para descargar.'
+            return JsonResponse({"status": success_status, "task_id": task.task_id})
+        except AlreadyRunningError:
+            logger.error("XblockCompletion - Task Already Running Error, user: {}, data: {}".format(request.user, data))
+            return JsonResponse({'error_task': 'AlreadyRunningError'})
 
     def have_permission(self, user, course_id):
         """
@@ -197,75 +202,89 @@ class XblockCompletionView(View):
             student_data = [['Titulo', 'Username', 'Email', 'Run', 'Seccion', 'SubSeccion', 'Unidad', 'Pregunta', 'Respuesta Estudiante', 'Resp. Correcta', 'Intentos', 'Pts Ganados', 'Pts Posibles', 'Pts Total Componente', 'Url', 'block_id']]
         max_count = None
         store = modulestore()
-        i=0
-        j=0
-        k=0
         student_states = self.get_all_states(course_id, filter_types)
-        if 'child_info' in course_structure and len(student_states) > 0:
-            for section in course_structure['child_info']['children']:
-                i = i + 1
-                if 'child_info' in section:
-                    for subsection in section['child_info']['children']:
-                        j = j + 1
-                        if 'child_info' in subsection:
-                            for unit in subsection['child_info']['children']:
-                                k = k + 1
-                                if 'child_info' in unit:
-                                    for block in unit['child_info']['children']:
-                                        with store.bulk_operations(course_key):
-                                            block_key = UsageKey.from_string(block['id'])
-                                            if filter_types is not None and block_key.block_type not in filter_types:
-                                                continue
-                                            block_item = store.get_item(block_key)
-                                            generated_report_data = defaultdict(list)
-                                            if not is_resumen:
-                                                generated_report_data = self.get_report_xblock(block_key, student_states[block['id']], block_item)
-                                            if generated_report_data is None:
-                                                continue
-                                            jumo_to_url = url_base + reverse('jump_to',kwargs={
-                                                        'course_id': course_id,
-                                                        'location': block['id']})
-                                            for response in student_states[block['id']]:
-                                                if response['username'] not in students:
-                                                    continue
-                                                if is_resumen:
-                                                    if block_key.block_type != 'problem':
-                                                        pass
-                                                    else:
-                                                        responses = self.set_data_is_resumen(
-                                                            block_item.display_name, 
-                                                            block['id'],
-                                                            response,
-                                                            str(i) + '.' + section['display_name'],
-                                                            str(i) + '.' + str(j) + '.' + subsection['display_name'],
-                                                            str(i) + '.' + str(j) + '.' + str(k) + '.' + unit['display_name'],
-                                                            students, jumo_to_url
-                                                            )
-                                                        if responses:
-                                                            student_data.append(responses)
-                                                else:
-                                                    # A human-readable location for the current block
-                                                    # A machine-friendly location for the current block
-                                                    # A block that has a single state per user can contain multiple responses
-                                                    # within the same state.
-                                                    if block_key.block_type != 'problem':
-                                                        pass
-                                                    else:
-                                                        user_states = generated_report_data.get(response['username'])
-                                                        if user_states:
-                                                            responses = self.set_data_is_all(
-                                                                    block_item.display_name, 
-                                                                    block['id'],
-                                                                    response,
-                                                                    str(i) + '.' + section['display_name'],
-                                                                    str(i) + '.' + str(j) + '.' + subsection['display_name'],
-                                                                    str(i) + '.' + str(j) + '.' + str(k) + '.' + unit['display_name'],
-                                                                    students,
-                                                                    user_states, jumo_to_url
-                                                                    )
-                                                            if responses:
-                                                                student_data = student_data + responses
+        list_blocks = self.process_data(course_structure, filter_types, [], iteri=[1,1,1])
+        for block in list_blocks:
+            with store.bulk_operations(course_key):
+                block_key = UsageKey.from_string(block['block_id'])
+                if filter_types is not None and block_key.block_type not in filter_types:
+                    continue
+                block_item = store.get_item(block_key)
+                generated_report_data = defaultdict(list)
+                if not is_resumen:
+                    generated_report_data = self.get_report_xblock(block_key, student_states[block['block_id']], block_item)
+                if generated_report_data is None:
+                    continue
+                jumo_to_url = url_base + reverse('jump_to',kwargs={
+                            'course_id': course_id,
+                            'location': block['block_id']})
+                for response in student_states[block['block_id']]:
+                    if response['username'] not in students:
+                        continue
+                    if is_resumen:
+                        if block_key.block_type != 'problem':
+                            pass
+                        else:
+                            responses = self.set_data_is_resumen(
+                                block_item.display_name, 
+                                block['block_id'],
+                                response,
+                                block['section'],
+                                block['subsection'],
+                                block['unit'],
+                                students, jumo_to_url
+                                )
+                            if responses:
+                                student_data.append(responses)
+                    else:
+                        # A human-readable location for the current block
+                        # A machine-friendly location for the current block
+                        # A block that has a single state per user can contain multiple responses
+                        # within the same state.
+                        if block_key.block_type != 'problem':
+                            pass
+                        else:
+                            user_states = generated_report_data.get(response['username'])
+                            if user_states:
+                                responses = self.set_data_is_all(
+                                        block_item.display_name, 
+                                        block['block_id'],
+                                        response,
+                                        block['section'],
+                                        block['subsection'],
+                                        block['unit'],
+                                        students,
+                                        user_states, jumo_to_url
+                                        )
+                                if responses:
+                                    student_data = student_data + responses
         return student_data
+
+    def process_data(self, course_structure, filter_types, list_blocks, section='', subsection='', unit='', iteri=[1,1,1]):
+        """
+            Extract all block_type in filter_types from course_structure
+        """
+        if 'child_info' in course_structure:
+            for data in course_structure['child_info']['children']:
+                if data['category'] == 'chapter':
+                    aux = str(iteri[0]) + '.' +data['display_name']
+                    list_blocks = self.process_data(data, filter_types, list_blocks, section=aux, iteri=iteri)
+                    iteri[0] = iteri[0] + 1
+                    iteri[1] = 1
+                    iteri[2] = 1
+                elif data['category'] == 'sequential':
+                    aux = str(iteri[0]) + '.' + str(iteri[1]) + '.' + data['display_name']
+                    list_blocks = self.process_data(data, filter_types, list_blocks, section=section, subsection=aux, iteri=iteri)
+                    iteri[1] = iteri[1] + 1
+                    iteri[2] = 1
+                elif data['category'] == 'vertical':
+                    aux = str(iteri[0]) + '.' + str(iteri[1]) + '.' + str(iteri[2]) + '.' + data['display_name']
+                    list_blocks = self.process_data(data, filter_types, list_blocks, section=section, subsection=subsection, unit=aux, iteri=iteri)
+                    iteri[2] = iteri[2] + 1
+                elif data['category'] in filter_types:
+                    list_blocks.append({'section': section, 'subsection': subsection, 'unit': unit, 'block_id': data['id']})
+
+        return list_blocks
 
     def set_data_is_resumen(self, title, block_id, response, section, subsection, unit, students, jumo_to_url):
         """
@@ -292,7 +311,7 @@ class XblockCompletionView(View):
                 ]
 
         return responses
-    
+
     def set_data_is_all(self, title, block_id, response, section, subsection, unit, students, user_states, jumo_to_url):
         """
             Create a row according 
@@ -353,7 +372,7 @@ class XblockCompletionView(View):
                 run = user['edxloginuser__run']
             students[user['username']] = {'email': user['email'], 'rut': run}
         return students
-    
+
     def get_report_xblock(self, block_key, user_states, block):
         """
         # Blocks can implement the generate_report_data method to provide their own
@@ -385,7 +404,7 @@ class XblockCompletionView(View):
         writer.writerows(data_student)
 
         return response
-    
+
     def generate_report_data(self, user_states, block):
         """
         Return a list of student responses to this block in a readable way.
