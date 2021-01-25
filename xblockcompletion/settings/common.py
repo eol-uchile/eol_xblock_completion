@@ -1,2 +1,2 @@
 def plugin_settings(settings):
-    settings.XBLOCKCOMPLETION_DELAY = 300
+    settings.XBLOCKCOMPLETION_LIMIT_STUDENTS = 15

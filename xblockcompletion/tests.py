@@ -183,7 +183,7 @@ class TestXblockCompletionView(ModuleStoreTestCase):
                 task_input, 'EOL_Xblock_Completion'
             )
         report_store = ReportStore.from_config(config_name='GRADES_DOWNLOAD')
-        header_row = ",".join(['Titulo', 'Username', 'Email', 'Run', 'Seccion', 'SubSeccion', 'Unidad', 'Intentos', 'Pts Ganados', 'Pts Posibles', 'Url', 'State', 'block_id'])
+        header_row = ",".join(['Titulo', 'Username', 'Email', 'Run', 'Seccion', 'SubSeccion', 'Unidad', 'Intentos', 'Pts Ganados', 'Pts Posibles', 'Url', 'block_id'])
         student1_row = ",".join([
             self.items[0].display_name,
             self.student.username,

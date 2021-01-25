@@ -77,18 +77,30 @@ def generate(_xmodule_instance_args, _entry_id, course_id, task_input, action_na
     task_progress.update_task_state(extra_meta=current_step)
     
     data = task_input.get('data')
+    filter_types = ['problem']
     students = XblockCompletionView().get_all_enrolled_users(data['course'])
     course_structure = get_data_course(data['course'])
-    student_data = XblockCompletionView()._build_student_data(data['base_url'], students, course_structure, data['format'], data['course'])
+    limit = settings.XBLOCKCOMPLETION_LIMIT_STUDENTS
+    lower_limit = 0
+    upper_limit = limit
+    aux_number_steps = len(students) / limit
+    number_steps = int(aux_number_steps)
+    if aux_number_steps > number_steps:
+        number_steps = number_steps + 1
+    usernames = [x for x in students]
+    for i in range(number_steps):
+        student_states = XblockCompletionView().get_all_states(data['course'], filter_types, lower_limit, upper_limit, usernames)
+        student_data = XblockCompletionView()._build_student_data(data['base_url'], students, course_structure, data['format'], data['course'], student_states, filter_types)
+        lower_limit = upper_limit
+        upper_limit = upper_limit + limit
+        current_step = {'step': 'XblockCompletion - Uploading CSV {} of {}'.format(i+1, number_steps)}
+        task_progress.update_task_state(extra_meta=current_step)
 
-    current_step = {'step': 'XblockCompletion - Uploading CSV'}
-    task_progress.update_task_state(extra_meta=current_step)
-
-    # Perform the upload
-    csv_name = 'Reporte_de_Preguntas'
-    if data['format']:
-        csv_name = 'Reporte_de_Preguntas_Resumen'
-    report_name = upload_csv_to_report_store(student_data, csv_name, course_id, start_date)
+        # Perform the upload
+        csv_name = 'Reporte_de_Preguntas_Parte_{}_de_{}'.format(i+1, number_steps)
+        if data['format']:
+            csv_name = 'Reporte_de_Preguntas_Resumen_Parte_{}_de_{}'.format(i+1, number_steps)
+        report_name = upload_csv_to_report_store(student_data, csv_name, course_id, start_date)
     current_step = {
         'step': 'XblockCompletion - CSV uploaded',
         'report_name': report_name,
@@ -178,32 +190,31 @@ class XblockCompletionView(View):
         except InvalidKeyError:
             return False
 
-    def get_all_states(self, course_id, filter_types):
+    def get_all_states(self, course_id, filter_types, lower_limit, upper_limit, usernames):
         """
             Get all student module of course
         """
         course_key = CourseKey.from_string(course_id)
-        smdat = StudentModule.objects.filter(course_id=course_key, module_type__in=filter_types).order_by('student__username').values('student__username', 'state', 'module_state_key')
+        limit_students = usernames[lower_limit:upper_limit]
+        smdat = StudentModule.objects.filter(student__username__in=limit_students, course_id=course_key, module_type__in=filter_types).order_by('student__username').values('student__username', 'state', 'module_state_key')
         response = defaultdict(list)
         for module in smdat:
             response[str(module['module_state_key'])].append({'username': module['student__username'], 'state': module['state']})
 
         return response
 
-    def _build_student_data(self, url_base, students, course_structure, is_resumen, course_id):
+    def _build_student_data(self, url_base, students, course_structure, is_resumen, course_id, student_states, filter_types):
         """
             Create list of list to make csv report
         """
         course_key = CourseKey.from_string(course_id)
-        filter_types = ['problem']
         if is_resumen:
-            student_data = [['Titulo', 'Username', 'Email', 'Run', 'Seccion', 'SubSeccion', 'Unidad', 'Intentos', 'Pts Ganados', 'Pts Posibles', 'Url', 'State', 'block_id']]
+            student_data = [['Titulo', 'Username', 'Email', 'Run', 'Seccion', 'SubSeccion', 'Unidad', 'Intentos', 'Pts Ganados', 'Pts Posibles', 'Url', 'block_id']]
         else:
             student_data = [['Titulo', 'Username', 'Email', 'Run', 'Seccion', 'SubSeccion', 'Unidad', 'Pregunta', 'Respuesta Estudiante', 'Resp. Correcta', 'Intentos', 'Pts Ganados', 'Pts Posibles', 'Pts Total Componente', 'Url', 'block_id']]
         max_count = None
         store = modulestore()
-        student_states = self.get_all_states(course_id, filter_types)
-        list_blocks = self.process_data(course_structure, filter_types, [], iteri=[1,1,1])
+        list_blocks = self.process_data_course(course_structure, filter_types, [], iteri=[1,1,1])
         for block in list_blocks:
             with store.bulk_operations(course_key):
                 block_key = UsageKey.from_string(block['block_id'])
@@ -260,7 +271,7 @@ class XblockCompletionView(View):
                                     student_data = student_data + responses
         return student_data
 
-    def process_data(self, course_structure, filter_types, list_blocks, section='', subsection='', unit='', iteri=[1,1,1]):
+    def process_data_course(self, course_structure, filter_types, list_blocks, section='', subsection='', unit='', iteri=[1,1,1]):
         """
             Extract all block_type in filter_types from course_structure
         """
@@ -268,18 +279,18 @@ class XblockCompletionView(View):
             for data in course_structure['child_info']['children']:
                 if data['category'] == 'chapter':
                     aux = str(iteri[0]) + '.' +data['display_name']
-                    list_blocks = self.process_data(data, filter_types, list_blocks, section=aux, iteri=iteri)
+                    list_blocks = self.process_data_course(data, filter_types, list_blocks, section=aux, iteri=iteri)
                     iteri[0] = iteri[0] + 1
                     iteri[1] = 1
                     iteri[2] = 1
                 elif data['category'] == 'sequential':
                     aux = str(iteri[0]) + '.' + str(iteri[1]) + '.' + data['display_name']
-                    list_blocks = self.process_data(data, filter_types, list_blocks, section=section, subsection=aux, iteri=iteri)
+                    list_blocks = self.process_data_course(data, filter_types, list_blocks, section=section, subsection=aux, iteri=iteri)
                     iteri[1] = iteri[1] + 1
                     iteri[2] = 1
                 elif data['category'] == 'vertical':
                     aux = str(iteri[0]) + '.' + str(iteri[1]) + '.' + str(iteri[2]) + '.' + data['display_name']
-                    list_blocks = self.process_data(data, filter_types, list_blocks, section=section, subsection=subsection, unit=aux, iteri=iteri)
+                    list_blocks = self.process_data_course(data, filter_types, list_blocks, section=section, subsection=subsection, unit=aux, iteri=iteri)
                     iteri[2] = iteri[2] + 1
                 elif data['category'] in filter_types:
                     list_blocks.append({'section': section, 'subsection': subsection, 'unit': unit, 'block_id': data['id']})
@@ -306,7 +317,6 @@ class XblockCompletionView(View):
                 raw_state['score']['raw_earned'],
                 raw_state['score']['raw_possible'],
                 jumo_to_url,
-                response['state'],
                 block_id
                 ]
 
@@ -354,17 +364,17 @@ class XblockCompletionView(View):
         """
             Get all enrolled student 
         """
-        students = {}
+        students = OrderedDict()
         try:
             enrolled_students = User.objects.filter(
                 courseenrollment__course_id=course_key,
                 courseenrollment__is_active=1
-            ).values('username', 'email', 'edxloginuser__run')
+            ).order_by('username').values('username', 'email', 'edxloginuser__run')
         except FieldError:
             enrolled_students = User.objects.filter(
                 courseenrollment__course_id=course_key,
                 courseenrollment__is_active=1
-            ).values('username', 'email')
+            ).order_by('username').values('username', 'email')
         
         for user in enrolled_students:
             run = ''
