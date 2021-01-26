@@ -20,8 +20,8 @@ from django.utils.translation import gettext as _
 from .utils import get_data_course
 import requests
 import json
+import six
 import logging
-import unicodecsv as csv
 from django.urls import reverse
 from lms.djangoapps.courseware.models import StudentModule
 from courseware.courses import get_course_by_id, get_course_with_access
@@ -38,6 +38,11 @@ from lms.djangoapps.instructor_task.tasks_helper.runner import run_main_task, Ta
 from django.utils.translation import ugettext_noop
 from lms.djangoapps.instructor_task.tasks_helper.utils import upload_csv_to_report_store
 from django.db import IntegrityError, transaction
+from common.djangoapps.util.file import course_filename_prefix_generator
+from lms.djangoapps.instructor_task.models import ReportStore
+from django.core.files.base import ContentFile
+import codecs
+import csv
 logger = logging.getLogger(__name__)
 
 def task_process_data(request, data):
@@ -80,33 +85,48 @@ def generate(_xmodule_instance_args, _entry_id, course_id, task_input, action_na
     filter_types = ['problem']
     students = XblockCompletionView().get_all_enrolled_users(data['course'])
     course_structure = get_data_course(data['course'])
-    limit = settings.XBLOCKCOMPLETION_LIMIT_STUDENTS
-    lower_limit = 0
-    upper_limit = limit
-    aux_number_steps = len(students) / limit
-    number_steps = int(aux_number_steps)
-    if aux_number_steps > number_steps:
-        number_steps = number_steps + 1
-    usernames = [x for x in students]
-    for i in range(number_steps):
-        student_states = XblockCompletionView().get_all_states(data['course'], filter_types, lower_limit, upper_limit, usernames)
-        student_data = XblockCompletionView()._build_student_data(data['base_url'], students, course_structure, data['format'], data['course'], student_states, filter_types)
-        lower_limit = upper_limit
-        upper_limit = upper_limit + limit
-        current_step = {'step': 'XblockCompletion - Uploading CSV {} of {}'.format(i+1, number_steps)}
-        task_progress.update_task_state(extra_meta=current_step)
 
-        # Perform the upload
-        csv_name = 'Reporte_de_Preguntas_Parte_{}_de_{}'.format(i+1, number_steps)
-        if data['format']:
-            csv_name = 'Reporte_de_Preguntas_Resumen_Parte_{}_de_{}'.format(i+1, number_steps)
-        report_name = upload_csv_to_report_store(student_data, csv_name, course_id, start_date)
+    report_store = ReportStore.from_config('GRADES_DOWNLOAD')
+    csv_name = 'Reporte_de_Preguntas'
+    if data['format']:
+        csv_name = 'Reporte_de_Preguntas_Resumen'
+
+    report_name = u"{course_prefix}_{csv_name}_{timestamp_str}.csv".format(
+        course_prefix=course_filename_prefix_generator(course_id),
+        csv_name=csv_name,
+        timestamp_str=start_date.strftime("%Y-%m-%d-%H%M")
+    )
+    output_buffer = ContentFile('')
+    if six.PY2:
+        output_buffer.write(codecs.BOM_UTF8)
+    csvwriter = csv.writer(output_buffer)
+
+    student_states = XblockCompletionView().get_all_states(data['course'], filter_types)
+    csvwriter = XblockCompletionView()._build_student_data(data, students, course_structure, student_states, filter_types, csvwriter)
+
+    current_step = {'step': 'XblockCompletion - Uploading CSV'}
+    task_progress.update_task_state(extra_meta=current_step)
+
+    output_buffer.seek(0)
+    report_store.store(course_id, report_name, output_buffer)
     current_step = {
         'step': 'XblockCompletion - CSV uploaded',
         'report_name': report_name,
     }
 
     return task_progress.update_task_state(extra_meta=current_step)
+
+def _get_utf8_encoded_rows(row):
+    """
+    Given a list of `rows` containing unicode strings, return a
+    new list of rows with those strings encoded as utf-8 for CSV
+    compatibility.
+    """
+    
+    if six.PY2:
+        return [six.text_type(item).encode('utf-8') for item in row]
+    else:
+        return [six.text_type(item) for item in row]
 
 class XblockCompletionView(View):
     """
@@ -190,28 +210,31 @@ class XblockCompletionView(View):
         except InvalidKeyError:
             return False
 
-    def get_all_states(self, course_id, filter_types, lower_limit, upper_limit, usernames):
+    def get_all_states(self, course_id, filter_types):
         """
             Get all student module of course
         """
         course_key = CourseKey.from_string(course_id)
-        limit_students = usernames[lower_limit:upper_limit]
-        smdat = StudentModule.objects.filter(student__username__in=limit_students, course_id=course_key, module_type__in=filter_types).order_by('student__username').values('student__username', 'state', 'module_state_key')
+        smdat = StudentModule.objects.filter(course_id=course_key, module_type__in=filter_types).order_by('student__username').values('student__username', 'state', 'module_state_key')
         response = defaultdict(list)
         for module in smdat:
             response[str(module['module_state_key'])].append({'username': module['student__username'], 'state': module['state']})
 
         return response
 
-    def _build_student_data(self, url_base, students, course_structure, is_resumen, course_id, student_states, filter_types):
+    def _build_student_data(self, data, students, course_structure, student_states, filter_types, csvwriter):
         """
             Create list of list to make csv report
         """
+        url_base = data['base_url']
+        course_id = data['course']
+        is_resumen = data['format']
         course_key = CourseKey.from_string(course_id)
         if is_resumen:
-            student_data = [['Titulo', 'Username', 'Email', 'Run', 'Seccion', 'SubSeccion', 'Unidad', 'Intentos', 'Pts Ganados', 'Pts Posibles', 'Url', 'block_id']]
+            header = ['Titulo', 'Username', 'Email', 'Run', 'Seccion', 'SubSeccion', 'Unidad', 'Intentos', 'Pts Ganados', 'Pts Posibles', 'Url', 'block_id']
         else:
-            student_data = [['Titulo', 'Username', 'Email', 'Run', 'Seccion', 'SubSeccion', 'Unidad', 'Pregunta', 'Respuesta Estudiante', 'Resp. Correcta', 'Intentos', 'Pts Ganados', 'Pts Posibles', 'Pts Total Componente', 'Url', 'block_id']]
+            header = ['Titulo', 'Username', 'Email', 'Run', 'Seccion', 'SubSeccion', 'Unidad', 'Pregunta', 'Respuesta Estudiante', 'Resp. Correcta', 'Intentos', 'Pts Ganados', 'Pts Posibles', 'Pts Total Componente', 'Url', 'block_id']
+        csvwriter.writerow(_get_utf8_encoded_rows(header))
         max_count = None
         store = modulestore()
         list_blocks = self.process_data_course(course_structure, filter_types, [], iteri=[1,1,1])
@@ -246,7 +269,7 @@ class XblockCompletionView(View):
                                 students, jumo_to_url
                                 )
                             if responses:
-                                student_data.append(responses)
+                                csvwriter.writerow(_get_utf8_encoded_rows(responses))
                     else:
                         # A human-readable location for the current block
                         # A machine-friendly location for the current block
@@ -268,8 +291,8 @@ class XblockCompletionView(View):
                                         user_states, jumo_to_url
                                         )
                                 if responses:
-                                    student_data = student_data + responses
-        return student_data
+                                    csvwriter.writerows(ReportStore()._get_utf8_encoded_rows(responses))
+        return csvwriter
 
     def process_data_course(self, course_structure, filter_types, list_blocks, section='', subsection='', unit='', iteri=[1,1,1]):
         """
@@ -400,20 +423,6 @@ class XblockCompletionView(View):
                 logger.info('XblockCompletion - block {} dont have implemented generate_report_data'.format(str(block_key)))
                 pass
         return generated_report_data
-
-    def export(self, data_student):
-        response = HttpResponse(content_type='text/csv')
-        response['Content-Disposition'] = 'attachment; filename="xblock_completion.csv"'
-
-        writer = csv.writer(
-            response,
-            delimiter=';',
-            dialect='excel',
-            encoding='utf-8')
-        
-        writer.writerows(data_student)
-
-        return response
 
     def generate_report_data(self, user_states, block):
         """
