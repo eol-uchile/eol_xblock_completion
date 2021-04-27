@@ -41,6 +41,7 @@ from django.db import IntegrityError, transaction
 from common.djangoapps.util.file import course_filename_prefix_generator
 from lms.djangoapps.instructor_task.models import ReportStore
 from django.core.files.base import ContentFile
+from lms.djangoapps.instructor import permissions
 import codecs
 import csv
 logger = logging.getLogger(__name__)
@@ -177,7 +178,8 @@ class XblockCompletionView(View):
         try:
             course_key = CourseKey.from_string(course_id)
             course = get_course_with_access(user, "load", course_key)
-            return bool(has_access(user, 'instructor', course)) or bool(has_access(user, 'staff', course))
+            data_researcher_access = user.has_perm(permissions.CAN_RESEARCH, course_key)
+            return bool(has_access(user, 'instructor', course)) or bool(has_access(user, 'staff', course)) or data_researcher_access
         except Exception:
             return False
 

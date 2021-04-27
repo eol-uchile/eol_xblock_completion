@@ -1,0 +1,33 @@
+.xblockcompletion-success-msg{
+    display: none;
+    margin: 0;
+    padding-bottom: 20px;
+    color: #36abc7;
+    background: #f2f9f2;
+    border-top: 2px solid #008401;
+    border-radius: 1px;
+    padding: 10px 15px;
+    font-weight: 600;
+}
+.xblockcompletion-error-msg{
+    display: none;
+    margin: 0;
+    padding-bottom: 20px;
+    color: #cb0712;
+    border-top: 2px solid #d0021b;
+    background: #fae6e8;
+    border-radius: 1px;
+    padding: 10px 15px;
+    font-weight: 600;
+}
+.xblockcompletion-warning-msg{
+    display: none;
+    margin: 0;
+    padding-bottom: 20px;
+    color: #cb4f07;
+    border-top: 2px solid #d47100;
+    background: #fae6e8;
+    border-radius: 1px;
+    padding: 10px 15px;
+    font-weight: 600;
+}

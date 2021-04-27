@@ -16,6 +16,7 @@ from xmodule.modulestore import ModuleStoreEnum
 from xmodule.modulestore.tests.django_utils import ModuleStoreTestCase
 from openedx.core.djangoapps.content.course_overviews.models import CourseOverview
 from student.roles import CourseInstructorRole, CourseStaffRole
+from common.djangoapps.student.tests.factories import CourseAccessRoleFactory
 from .views import XblockCompletionView, generate
 from .utils import get_data_course
 from rest_framework_jwt.settings import api_settings
@@ -79,7 +80,23 @@ class TestXblockCompletionView(ModuleStoreTestCase):
                 user=self.student, course_id=self.course.id, mode='honor')
             self.client_student.login(
                 username='student', password='test')
-    
+            # Create and Enroll data researcher user
+            self.data_researcher_user = UserFactory(
+                username='data_researcher_user',
+                password='test',
+                email='data.researcher@edx.org')
+            CourseEnrollmentFactory(
+                user=self.data_researcher_user,
+                course_id=self.course.id, mode='audit')
+            CourseAccessRoleFactory(
+                course_id=self.course.id,
+                user=self.data_researcher_user,
+                role='data_researcher',
+                org=self.course.id.org
+            )
+            self.client_data_researcher = Client()
+            self.assertTrue(self.client_data_researcher.login(username='data_researcher_user', password='test'))
+
     def _verify_csv_file_report(self, report_store, expected_data):
         """
         Verify course survey data.
@@ -196,7 +213,7 @@ class TestXblockCompletionView(ModuleStoreTestCase):
         ])
         expected_data = [header_row, student1_row]
         self._verify_csv_file_report(report_store, expected_data)
-    
+
     @patch("xblockcompletion.views.XblockCompletionView.get_report_xblock")
     def test_xblockcompletion_get_all_data(self, report):
         """
@@ -337,3 +354,17 @@ class TestXblockCompletionView(ModuleStoreTestCase):
         request = response.request
         self.assertEqual(response.status_code, 200)
         self.assertEqual(json.loads(response._container[0].decode()), {'error': 'Usuario no tiene rol para esta funcionalidad'})
+
+    def test_xblockcompletion_get_data_researcher(self):
+        """
+            Test xblockcompletion view when user is data researcher
+        """
+        data = {
+            'format':'resumen',
+            'course':  str(self.course.id)
+        }
+        response = self.client_data_researcher.get(reverse('xblockcompletion-data:data'), data)
+        request = response.request
+        r = json.loads(response._container[0].decode())
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(r['status'], 'El reporte de preguntas esta siendo creado, en un momento estará disponible para descargar.')
