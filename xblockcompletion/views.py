@@ -24,8 +24,8 @@ import six
 import logging
 from django.urls import reverse
 from lms.djangoapps.courseware.models import StudentModule
-from courseware.courses import get_course_by_id, get_course_with_access
-from courseware.access import has_access
+from lms.djangoapps.courseware.courses import get_course_by_id, get_course_with_access
+from lms.djangoapps.courseware.access import has_access
 from opaque_keys import InvalidKeyError
 from celery import current_task, task
 from lms.djangoapps.instructor_task.tasks_base import BaseInstructorTask
