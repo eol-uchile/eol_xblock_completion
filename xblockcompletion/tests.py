@@ -200,37 +200,52 @@ class TestXblockCompletionView(ModuleStoreTestCase):
                 task_input, 'EOL_Xblock_Completion'
             )
         report_store = ReportStore.from_config(config_name='GRADES_DOWNLOAD')
-        header_row = ",".join(['Titulo', 'Username', 'Email', 'Run', 'Seccion', 'SubSeccion', 'Unidad', 'Intentos', 'Pts Ganados', 'Pts Posibles', 'Url', 'block_id'])
-        student1_row = ",".join([
+        header_row = ";".join(['Titulo', 'Username', 'Email', 'Run', 'Seccion', 'SubSeccion', 'Unidad', 'Intentos', 'Pts Ganados', 'Pts Posibles', 'Url', 'block_id'])
+        student1_row = ";".join([
             self.items[0].display_name,
             self.student.username,
             self.student.email,
             '',
-            '1.' + self.chapter.display_name,
-            '1.1.' + self.section.display_name,
-            '1.1.1.' + self.subsection.display_name,
+            self.chapter.display_name,
+            self.section.display_name,
+            self.subsection.display_name,
             '1','0','3'
         ])
         expected_data = [header_row, student1_row]
         self._verify_csv_file_report(report_store, expected_data)
 
-    @patch("xblockcompletion.views.XblockCompletionView.get_report_xblock")
+    @patch("xblockcompletion.views.XblockCompletionView.generate_report_data")
     def test_xblockcompletion_get_all_data(self, report):
         """
             Test xblockcompletion view all data
         """
-        state_1 = {_("Answer ID"): 'answer_id',
-            _("Question"): 'question_text',
-            _("Answer"): 'answer_text',
-            _("Correct Answer") : 'correct_answer_text'
-            }
-        state_2 = {_("Answer ID"): 'answer_id',
-            _("Question"): 'question_text',
-            _("Answer"): 'correct_answer_text',
-            _("Correct Answer") : 'correct_answer_text'
-            }
-        generated_report_data = {self.student.username : [state_1,state_2,state_1]}               
-        report.return_value = generated_report_data
+        state_1 = {
+            'answer_id': 'answer_id',
+            'question': 'question_text',
+            'answer': 'answer_text',
+            'correct_answer': 'correct_answer_text',
+            'username': self.student.username,
+            'email': self.student.email,
+            'user_rut': '',
+            'attempts': '1',
+            'gained': '0',
+            'possible': '1.0',
+            'total': '3'
+        }
+        state_2 = {
+            'answer_id': 'answer_id',
+            'question': 'question_text',
+            'answer': 'correct_answer_text',
+            'correct_answer': 'correct_answer_text',
+            'username': self.student.username,
+            'email': self.student.email,
+            'user_rut': '',
+            'attempts': '1',
+            'gained': '1.0',
+            'possible': '1.0',
+            'total': '3'
+        }
+        report.return_value = [state_1, state_2]
         from lms.djangoapps.courseware.models import StudentModule
         data = {'format': False, 'course': str(self.course.id), 'base_url':'this_is_a_url'}
         task_input = {'data': data }
@@ -247,22 +262,22 @@ class TestXblockCompletionView(ModuleStoreTestCase):
                 task_input, 'EOL_Xblock_Completion'
             )
         report_store = ReportStore.from_config(config_name='GRADES_DOWNLOAD')
-        header_row = ",".join(['Titulo', 'Username', 'Email', 'Run', 'Seccion', 'SubSeccion', 'Unidad', 'Pregunta', 'Respuesta Estudiante', 'Resp. Correcta', 'Intentos', 'Pts Ganados', 'Pts Posibles', 'Pts Total Componente', 'Url', 'block_id'])
-        base_student_row = ",".join([
+        header_row = ";".join(['Titulo', 'Username', 'Email', 'Run', 'Seccion', 'SubSeccion', 'Unidad', 'Pregunta', 'Respuesta Estudiante', 'Resp. Correcta', 'Intentos', 'Pts Ganados', 'Pts Posibles', 'Pts Total Componente', 'Url', 'block_id'])
+        base_student_row = ";".join([
             self.items[0].display_name,
             self.student.username,
             self.student.email,
             '',
-            '1.' + self.chapter.display_name,
-            '1.1.' + self.section.display_name,
-            '1.1.1.' + self.subsection.display_name
+            self.chapter.display_name,
+            self.section.display_name,
+            self.subsection.display_name
         ])
-        student_row = base_student_row + ',question_text,answer_text,correct_answer_text,1,0,1.0,3'
-        student_row2 = base_student_row + ',question_text,correct_answer_text,correct_answer_text,1,1.0,1.0,3'
+        student_row = base_student_row + ';question_text;answer_text;correct_answer_text;1;0;1.0;3'
+        student_row2 = base_student_row + ';question_text;correct_answer_text;correct_answer_text;1;1.0;1.0;3'
         expected_data = [header_row, student_row, student_row2, student_row]
         self._verify_csv_file_report(report_store, expected_data)
 
-    @patch("xblockcompletion.views.XblockCompletionView.get_report_xblock")
+    @patch("xblockcompletion.views.XblockCompletionView.generate_report_data")
     def test_xblockcompletion_get_all_data_no_responses(self, report):
         """
             Test xblockcompletion view all data when xblock dont have responses yet
@@ -277,15 +292,15 @@ class TestXblockCompletionView(ModuleStoreTestCase):
                 task_input, 'EOL_Xblock_Completion'
             )
         report_store = ReportStore.from_config(config_name='GRADES_DOWNLOAD')
-        header_row = ",".join(['Titulo', 'Username', 'Email', 'Run', 'Seccion', 'SubSeccion', 'Unidad', 'Pregunta', 'Respuesta Estudiante', 'Resp. Correcta', 'Intentos', 'Pts Ganados', 'Pts Posibles', 'Pts Total Componente', 'Url', 'block_id'])
-        base_student_row = ",".join([
+        header_row = ";".join(['Titulo', 'Username', 'Email', 'Run', 'Seccion', 'SubSeccion', 'Unidad', 'Pregunta', 'Respuesta Estudiante', 'Resp. Correcta', 'Intentos', 'Pts Ganados', 'Pts Posibles', 'Pts Total Componente', 'Url', 'block_id'])
+        base_student_row = ";".join([
             self.items[0].display_name,
             self.student.username,
             self.student.email,
             '',
-            '1.' + self.chapter.display_name,
-            '1.1.' + self.section.display_name,
-            '1.1.1.' + self.subsection.display_name
+            self.chapter.display_name,
+            self.section.display_name,
+            self.subsection.display_name
         ])
         report_csv_filename = report_store.links_for(self.course.id)[0][0]
         report_path = report_store.path_to(self.course.id, report_csv_filename)
