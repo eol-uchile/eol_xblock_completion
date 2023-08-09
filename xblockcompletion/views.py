@@ -367,7 +367,7 @@ class XblockCompletionView(View):
             matlab_api_key=None,
         )
         student_states  = self.get_user_states(block.location.course_key, block.location)
-        for response in user_states:
+        for response in student_states:
             user_state = json.loads(response['state'])
             if 'student_answers' not in user_state:
                 continue
