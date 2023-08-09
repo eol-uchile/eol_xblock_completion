@@ -219,6 +219,7 @@ class XblockCompletionView(View):
             module_type="problem",
             student__courseenrollment__mode="honor",
             student__courseenrollment__is_active=1,
+            state__contains="attempts"
             ).values('module_state_key').distinct())
         return [x['module_state_key'] for x in smdat]
 
@@ -229,6 +230,7 @@ class XblockCompletionView(View):
             module_state_key=block_key,
             student__courseenrollment__mode="honor",
             student__courseenrollment__is_active=1,
+            state__contains="attempts"
             ).values('student__username', 'student__email','student__edxloginuser__run', 'state'))
         return smdat
 
@@ -257,9 +259,9 @@ class XblockCompletionView(View):
         is_resumen = data['format']
         course_key = CourseKey.from_string(course_id)
         if is_resumen:
-            header = ['Titulo', 'Username', 'Email', 'Run', 'Seccion', 'SubSeccion', 'Unidad', 'Intentos', 'Pts Ganados', 'Pts Posibles', 'Url', 'block_id']
+            header = ['Titulo', 'Username', 'Email', 'Run', 'Seccion', 'SubSeccion', 'Unidad', 'Intentos', 'Pts Ganados', 'Pts Posibles', 'Has saved answers']
         else:
-            header = ['Titulo', 'Username', 'Email', 'Run', 'Seccion', 'SubSeccion', 'Unidad', 'Pregunta', 'Respuesta Estudiante', 'Resp. Correcta', 'Intentos', 'Pts Ganados', 'Pts Posibles', 'Pts Total Componente', 'Url', 'block_id']
+            header = ['Titulo', 'Username', 'Email', 'Run', 'Seccion', 'SubSeccion', 'Unidad', 'Pregunta', 'Respuesta Estudiante', 'Resp. Correcta', 'Intentos', 'Pts Ganados', 'Pts Posibles', 'Pts Total Componente', 'Has saved answers',]
         csvwriter.writerow(_get_utf8_encoded_rows(header))
         store = modulestore()
         list_blocks = self.get_block_keys(course_key)
@@ -298,9 +300,9 @@ class XblockCompletionView(View):
                             user_state['attempts'],
                             user_state['score']['raw_earned'],
                             user_state['score']['raw_possible'],
-                            jump_to_url,
-                            str(block_key)
                             ]
+                        if 'has_saved_answers' in user_state and user_state['has_saved_answers']:
+                            row.append('has_saved_answers')
                         csvwriter.writerow(row)
                 else:
                     for response in self.generate_report_data(block_item):
@@ -321,9 +323,9 @@ class XblockCompletionView(View):
                             response['gained'],
                             response['possible'],
                             response['total'],
-                            jump_to_url,
-                            str(block_key)
                             ]
+                        if response['has_saved_answers']:
+                            row.append('has_saved_answers')
                         csvwriter.writerow(row)
         return csvwriter
 
@@ -407,9 +409,8 @@ class XblockCompletionView(View):
                     'answer_id': answer_id,
                     'question': question_text,
                     'answer': answer_text,
+                    'correct_answer': correct_answer_text if correct_answer_text is not None else ''
                 }
-                if correct_answer_text is not None:
-                    report['correct_answer'] = correct_answer_text
                 pts_question = float(user_state['score']['raw_possible']) / len(user_state['input_state'])
                 report['username'] = response['student__username']
                 report['email'] = response['student__email']
@@ -418,4 +419,5 @@ class XblockCompletionView(View):
                 report['gained'] = pts_question if int(user_state['score']['raw_earned']) > 0 and answer_text == correct_answer_text else '0'
                 report['possible'] = pts_question
                 report['total'] = user_state['score']['raw_possible']
+                report['has_saved_answers'] = user_state.get('has_saved_answers', None)
                 yield report

@@ -109,6 +109,20 @@ class TestXblockCompletionView(ModuleStoreTestCase):
             csv_file_data = csv_file_data.decode("utf-8-sig")
             for data in expected_data:
                 self.assertIn(data, csv_file_data)
+    
+    def _verify_csv_file_report_notIn(self, report_store, expected_data):
+        """
+        Verify course survey data.
+        """
+        report_csv_filename = report_store.links_for(self.course.id)[0][0]
+        report_path = report_store.path_to(self.course.id, report_csv_filename)
+        with report_store.storage.open(report_path) as csv_file:
+            csv_file_data = csv_file.read()
+            # Removing unicode signature (BOM) from the beginning
+            csv_file_data = csv_file_data.decode("utf-8-sig")
+            for data in expected_data:
+                self.assertNotIn(data, csv_file_data)
+
 
     def test_xblockcompletion_get(self):
         """
@@ -192,15 +206,22 @@ class TestXblockCompletionView(ModuleStoreTestCase):
             student=self.student,
             course_id=self.course.id,
             module_type='problem',
-            state='{"score": {"raw_earned": 0, "raw_possible": 3}, "seed": 1, "attempts":1}')
+            state='{"score": {"raw_earned": 0, "raw_possible": 3}, "seed": 1, "attempts":1,"has_saved_answers": true}')
         module.save()
+        module2 = StudentModule(
+            module_state_key=self.items[1].location,
+            student=self.student,
+            course_id=self.course.id,
+            module_type='problem',
+            state='{"score": {"raw_earned": 0, "raw_possible": 3}, "seed": 1}')
+        module2.save()
         with patch('lms.djangoapps.instructor_task.tasks_helper.runner._get_current_task'):
             result = generate(
                 None, None, self.course.id,
                 task_input, 'EOL_Xblock_Completion'
             )
         report_store = ReportStore.from_config(config_name='GRADES_DOWNLOAD')
-        header_row = ";".join(['Titulo', 'Username', 'Email', 'Run', 'Seccion', 'SubSeccion', 'Unidad', 'Intentos', 'Pts Ganados', 'Pts Posibles', 'Url', 'block_id'])
+        header_row = ";".join(['Titulo', 'Username', 'Email', 'Run', 'Seccion', 'SubSeccion', 'Unidad', 'Intentos', 'Pts Ganados', 'Pts Posibles', 'Has saved answers'])
         student1_row = ";".join([
             self.items[0].display_name,
             self.student.username,
@@ -209,10 +230,11 @@ class TestXblockCompletionView(ModuleStoreTestCase):
             self.chapter.display_name,
             self.section.display_name,
             self.subsection.display_name,
-            '1','0','3'
+            '1','0','3','has_saved_answers'
         ])
         expected_data = [header_row, student1_row]
         self._verify_csv_file_report(report_store, expected_data)
+        self._verify_csv_file_report_notIn(report_store, [str(self.items[1].location)])
 
     @patch("xblockcompletion.views.XblockCompletionView.generate_report_data")
     def test_xblockcompletion_get_all_data(self, report):
@@ -230,7 +252,8 @@ class TestXblockCompletionView(ModuleStoreTestCase):
             'attempts': '1',
             'gained': '0',
             'possible': '1.0',
-            'total': '3'
+            'total': '3',
+            'has_saved_answers':None
         }
         state_2 = {
             'answer_id': 'answer_id',
@@ -243,7 +266,8 @@ class TestXblockCompletionView(ModuleStoreTestCase):
             'attempts': '1',
             'gained': '1.0',
             'possible': '1.0',
-            'total': '3'
+            'total': '3',
+            'has_saved_answers': True
         }
         report.return_value = [state_1, state_2]
         from lms.djangoapps.courseware.models import StudentModule
@@ -262,7 +286,7 @@ class TestXblockCompletionView(ModuleStoreTestCase):
                 task_input, 'EOL_Xblock_Completion'
             )
         report_store = ReportStore.from_config(config_name='GRADES_DOWNLOAD')
-        header_row = ";".join(['Titulo', 'Username', 'Email', 'Run', 'Seccion', 'SubSeccion', 'Unidad', 'Pregunta', 'Respuesta Estudiante', 'Resp. Correcta', 'Intentos', 'Pts Ganados', 'Pts Posibles', 'Pts Total Componente', 'Url', 'block_id'])
+        header_row = ";".join(['Titulo', 'Username', 'Email', 'Run', 'Seccion', 'SubSeccion', 'Unidad', 'Pregunta', 'Respuesta Estudiante', 'Resp. Correcta', 'Intentos', 'Pts Ganados', 'Pts Posibles', 'Pts Total Componente', 'Has saved answers'])
         base_student_row = ";".join([
             self.items[0].display_name,
             self.student.username,
@@ -273,7 +297,7 @@ class TestXblockCompletionView(ModuleStoreTestCase):
             self.subsection.display_name
         ])
         student_row = base_student_row + ';question_text;answer_text;correct_answer_text;1;0;1.0;3'
-        student_row2 = base_student_row + ';question_text;correct_answer_text;correct_answer_text;1;1.0;1.0;3'
+        student_row2 = base_student_row + ';question_text;correct_answer_text;correct_answer_text;1;1.0;1.0;3;has_saved_answers'
         expected_data = [header_row, student_row, student_row2, student_row]
         self._verify_csv_file_report(report_store, expected_data)
 
@@ -292,7 +316,7 @@ class TestXblockCompletionView(ModuleStoreTestCase):
                 task_input, 'EOL_Xblock_Completion'
             )
         report_store = ReportStore.from_config(config_name='GRADES_DOWNLOAD')
-        header_row = ";".join(['Titulo', 'Username', 'Email', 'Run', 'Seccion', 'SubSeccion', 'Unidad', 'Pregunta', 'Respuesta Estudiante', 'Resp. Correcta', 'Intentos', 'Pts Ganados', 'Pts Posibles', 'Pts Total Componente', 'Url', 'block_id'])
+        header_row = ";".join(['Titulo', 'Username', 'Email', 'Run', 'Seccion', 'SubSeccion', 'Unidad', 'Pregunta', 'Respuesta Estudiante', 'Resp. Correcta', 'Intentos', 'Pts Ganados', 'Pts Posibles', 'Pts Total Componente', 'Has saved answers'])
         base_student_row = ";".join([
             self.items[0].display_name,
             self.student.username,
