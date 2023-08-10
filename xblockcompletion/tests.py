@@ -18,7 +18,6 @@ from openedx.core.djangoapps.content.course_overviews.models import CourseOvervi
 from common.djangoapps.student.roles import CourseInstructorRole, CourseStaffRole
 from common.djangoapps.student.tests.factories import CourseAccessRoleFactory
 from .views import XblockCompletionView, generate
-from .utils import get_data_course
 from rest_framework_jwt.settings import api_settings
 from django.test.utils import override_settings
 from django.utils.translation import gettext as _
@@ -132,66 +131,6 @@ class TestXblockCompletionView(ModuleStoreTestCase):
         request = response.request
         self.assertEqual(response.status_code, 200)
         self.assertEqual(request['PATH_INFO'], '/xblockcompletion/data')
-    
-    def test_xblockcompletion_get_data_course(self):
-        """
-            Test xblockcompletion get_data_course
-        """
-        #Diff is 8444 characters long. Set self.maxDiff to None to see it.
-        course_structure = {
-                    'has_children': True, 
-                    'display_name': '2021', 
-                    'id': 'i4x://mss/999/course/2021', 
-                    'child_info': {
-                        'display_name': 'Section', 
-                        'category': 'chapter', 
-                        'children': [{
-                            'has_children': True, 
-                            'display_name': self.chapter.display_name, 
-                            'id': str(self.chapter.location), 
-                            'child_info': {
-                                'display_name': 'Subsection', 
-                                'category': 'sequential',
-                                'children': [{
-                                    'has_children': True, 
-                                    'display_name': self.section.display_name, 
-                                    'id': str(self.section.location), 
-                                    'child_info': {
-                                        'display_name': 'Unit', 
-                                        'category': 'vertical', 
-                                        'children': [{
-                                            'has_children': True, 
-                                            'display_name': self.subsection.display_name, 
-                                            'id': str(self.subsection.location), 
-                                            'child_info': {
-                                                'children': [{
-                                                    'has_children': False, 
-                                                    'display_name': self.items[0].display_name, 
-                                                    'id': str(self.items[0].location), 
-                                                    'category': 'problem'
-                                                    }, 
-                                                    {'has_children': False, 
-                                                    'display_name': self.items[1].display_name, 
-                                                    'id': str(self.items[1].location), 
-                                                    'category': 'problem'
-                                                    }, 
-                                                    {'has_children': False,
-                                                    'display_name': self.items[2].display_name, 
-                                                    'id': str(self.items[2].location), 
-                                                    'category': 'problem'
-                                                    }]
-                                            }, 
-                                            'category': 'vertical'
-                                            }]
-                                    }, 
-                                    'category': 'sequential'}]
-                            }, 
-                            'category': 'chapter'
-                            }]
-                        }, 
-                    'category': 'course'}
-        response = get_data_course(str(self.course.id))
-        self.assertEqual(response, course_structure)
 
     def test_xblockcompletion_get_resumen(self):
         """
@@ -221,16 +160,16 @@ class TestXblockCompletionView(ModuleStoreTestCase):
                 task_input, 'EOL_Xblock_Completion'
             )
         report_store = ReportStore.from_config(config_name='GRADES_DOWNLOAD')
-        header_row = ";".join(['Titulo', 'Username', 'Email', 'Run', 'Seccion', 'SubSeccion', 'Unidad', 'Intentos', 'Pts Ganados', 'Pts Posibles', 'Has saved answers'])
+        header_row = ";".join(['"Username"', '"Email"', '"Run"', '"Seccion"', '"SubSeccion"', '"Unidad"', '"Titulo"', '"Intentos"', '"Pts Ganados"', '"Pts Posibles"', '"block id"', '"Has saved answers"'])
         student1_row = ";".join([
-            self.items[0].display_name,
-            self.student.username,
-            self.student.email,
-            '',
-            self.chapter.display_name,
-            self.section.display_name,
-            self.subsection.display_name,
-            '1','0','3','has_saved_answers'
+            '"{}"'.format(self.student.username),
+            '"{}"'.format(self.student.email),
+            '""',
+            '"{}"'.format(self.chapter.display_name),
+            '"{}"'.format(self.section.display_name),
+            '"{}"'.format( self.subsection.display_name),
+            '"{}"'.format(self.items[0].display_name),
+            '"1"','"0"','"3"','"{}"'.format(str(self.items[0].location)) ,'"has_saved_answers"'
         ])
         expected_data = [header_row, student1_row]
         self._verify_csv_file_report(report_store, expected_data)
@@ -286,18 +225,18 @@ class TestXblockCompletionView(ModuleStoreTestCase):
                 task_input, 'EOL_Xblock_Completion'
             )
         report_store = ReportStore.from_config(config_name='GRADES_DOWNLOAD')
-        header_row = ";".join(['Titulo', 'Username', 'Email', 'Run', 'Seccion', 'SubSeccion', 'Unidad', 'Pregunta', 'Respuesta Estudiante', 'Resp. Correcta', 'Intentos', 'Pts Ganados', 'Pts Posibles', 'Pts Total Componente', 'Has saved answers'])
-        base_student_row = ";".join([
-            self.items[0].display_name,
-            self.student.username,
-            self.student.email,
-            '',
-            self.chapter.display_name,
-            self.section.display_name,
-            self.subsection.display_name
+        header_row = ";".join(['"Username"', '"Email"', '"Run"', '"Seccion"', '"SubSeccion"', '"Unidad"', '"Titulo"', '"Pregunta"', '"Respuesta Estudiante"', '"Resp. Correcta"', '"Intentos"', '"Pts Ganados"', '"Pts Posibles"', '"Pts Total Componente"', '"block id"', '"Has saved answers"'])
+        base_student_row = ";".join([           
+            '"{}"'.format(self.student.username),
+            '"{}"'.format(self.student.email),
+            '""',
+            '"{}"'.format(self.chapter.display_name),
+            '"{}"'.format(self.section.display_name),
+            '"{}"'.format( self.subsection.display_name),
+             '"{}"'.format(self.items[0].display_name),
         ])
-        student_row = base_student_row + ';question_text;answer_text;correct_answer_text;1;0;1.0;3'
-        student_row2 = base_student_row + ';question_text;correct_answer_text;correct_answer_text;1;1.0;1.0;3;has_saved_answers'
+        student_row = base_student_row + ';"question_text";"answer_text";"correct_answer_text";"1";"0";"1.0";"3"'
+        student_row2 = base_student_row + ';"question_text";"correct_answer_text";"correct_answer_text";"1";"1.0";"1.0";"3";"'+str(self.items[0].location)+'";"has_saved_answers"'
         expected_data = [header_row, student_row, student_row2, student_row]
         self._verify_csv_file_report(report_store, expected_data)
 
@@ -316,7 +255,7 @@ class TestXblockCompletionView(ModuleStoreTestCase):
                 task_input, 'EOL_Xblock_Completion'
             )
         report_store = ReportStore.from_config(config_name='GRADES_DOWNLOAD')
-        header_row = ";".join(['Titulo', 'Username', 'Email', 'Run', 'Seccion', 'SubSeccion', 'Unidad', 'Pregunta', 'Respuesta Estudiante', 'Resp. Correcta', 'Intentos', 'Pts Ganados', 'Pts Posibles', 'Pts Total Componente', 'Has saved answers'])
+        header_row = ";".join(['"Username"', '"Email"', '"Run"', '"Seccion"', '"SubSeccion"', '"Unidad"', '"Titulo"', '"Pregunta"', '"Respuesta Estudiante"', '"Resp. Correcta"', '"Intentos"', '"Pts Ganados"', '"Pts Posibles"', '"Pts Total Componente"', '"block id"', '"Has saved answers"'])
         base_student_row = ";".join([
             self.items[0].display_name,
             self.student.username,

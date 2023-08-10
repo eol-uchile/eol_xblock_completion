@@ -17,7 +17,6 @@ from lms.djangoapps.instructor_analytics.basic import list_problem_responses, ge
 from django.core.exceptions import FieldError
 from django.contrib.auth.models import User
 from django.utils.translation import gettext as _
-from .utils import get_data_course
 import requests
 import json
 import six
@@ -102,7 +101,7 @@ def generate(_xmodule_instance_args, _entry_id, course_id, task_input, action_na
     output_buffer = ContentFile('')
     if six.PY2:
         output_buffer.write(codecs.BOM_UTF8)
-    csvwriter = csv.writer(output_buffer, delimiter=';')
+    csvwriter = csv.writer(output_buffer, delimiter=';', quoting=csv.QUOTE_ALL)
 
     csvwriter = XblockCompletionView()._build_student_data(data, csvwriter)
 
@@ -259,9 +258,9 @@ class XblockCompletionView(View):
         is_resumen = data['format']
         course_key = CourseKey.from_string(course_id)
         if is_resumen:
-            header = ['Titulo', 'Username', 'Email', 'Run', 'Seccion', 'SubSeccion', 'Unidad', 'Intentos', 'Pts Ganados', 'Pts Posibles', 'Has saved answers']
+            header = ['Username', 'Email', 'Run', 'Seccion', 'SubSeccion', 'Unidad', 'Titulo', 'Intentos', 'Pts Ganados', 'Pts Posibles', 'block id', 'Has saved answers']
         else:
-            header = ['Titulo', 'Username', 'Email', 'Run', 'Seccion', 'SubSeccion', 'Unidad', 'Pregunta', 'Respuesta Estudiante', 'Resp. Correcta', 'Intentos', 'Pts Ganados', 'Pts Posibles', 'Pts Total Componente', 'Has saved answers',]
+            header = ['Username', 'Email', 'Run', 'Seccion', 'SubSeccion', 'Unidad', 'Titulo', 'Pregunta', 'Respuesta Estudiante', 'Resp. Correcta', 'Intentos', 'Pts Ganados', 'Pts Posibles', 'Pts Total Componente', 'block id', 'Has saved answers']
         csvwriter.writerow(_get_utf8_encoded_rows(header))
         store = modulestore()
         list_blocks = self.get_block_keys(course_key)
@@ -274,9 +273,9 @@ class XblockCompletionView(View):
                 # assume all block_key are directly children of unit
                 block_ancestors = self.get_block_ancestors(block_item, store)
                 display_name = block_item.display_name
-                jump_to_url = url_base + reverse('jump_to',kwargs={
-                            'course_id': course_id,
-                            'location': str(block_key)})
+                #jump_to_url = url_base + reverse('jump_to',kwargs={
+                #            'course_id': course_id,
+                #            'location': str(block_key)})
                 # only problem block
                 if is_resumen:
                     student_states  = self.get_user_states(course_key, block_key)
@@ -290,16 +289,17 @@ class XblockCompletionView(View):
                         report['gained'] = user_state['score']['raw_earned']
                         report['total'] = user_state['score']['raw_possible']
                         row = [
-                            display_name, 
                             response['student__username'],
                             response['student__email'],
                             response['student__edxloginuser__run'],
                             block_ancestors[2]['display_name'],
                             block_ancestors[1]['display_name'],
                             block_ancestors[0]['display_name'],
+                            display_name,
                             user_state['attempts'],
                             user_state['score']['raw_earned'],
                             user_state['score']['raw_possible'],
+                            str(block_key)
                             ]
                         if 'has_saved_answers' in user_state and user_state['has_saved_answers']:
                             row.append('has_saved_answers')
@@ -308,14 +308,14 @@ class XblockCompletionView(View):
                     for response in self.generate_report_data(block_item):
                         if response is None:
                             continue
-                        row = [
-                            display_name, 
+                        row = [                            
                             response['username'],
                             response['email'],
                             response['user_rut'],
                             block_ancestors[2]['display_name'],
                             block_ancestors[1]['display_name'],
                             block_ancestors[0]['display_name'],
+                            display_name,
                             response['question'],
                             response['answer'],
                             response['correct_answer'],
@@ -323,6 +323,7 @@ class XblockCompletionView(View):
                             response['gained'],
                             response['possible'],
                             response['total'],
+                            str(block_key)
                             ]
                         if response['has_saved_answers']:
                             row.append('has_saved_answers')
