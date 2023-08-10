@@ -231,7 +231,7 @@ class XblockCompletionView(View):
             student__courseenrollment__mode="honor",
             student__courseenrollment__is_active=1,
             state__contains="attempts"
-            ).values('student__username', 'student__email','student__edxloginuser__run', 'state'))
+            ).values('student__username', 'student__email','student__edxloginuser__run', 'state').distinct())
         return smdat
 
     def get_block_ancestors(self, xblock, store):
@@ -373,27 +373,29 @@ class XblockCompletionView(View):
             user_state = json.loads(response['state'])
             if 'student_answers' not in user_state:
                 continue
-
-            lcp = LoncapaProblem(
-                problem_text=block.data,
-                id=block.location.html_id(),
-                capa_system=capa_system,
-                # We choose to run without a fully initialized CapaModule
-                capa_module=None,
-                state={
-                    'done': user_state.get('done'),
-                    'correct_map': user_state.get('correct_map'),
-                    'student_answers': user_state.get('student_answers'),
-                    'has_saved_answers': user_state.get('has_saved_answers'),
-                    'input_state': user_state.get('input_state'),
-                    'seed': user_state.get('seed'),
-                },
-                seed=user_state.get('seed'),
-                # extract_tree=False allows us to work without a fully initialized CapaModule
-                # We'll still be able to find particular data in the XML when we need it
-                extract_tree=False,
-            )
-
+            try:
+                lcp = LoncapaProblem(
+                    problem_text=block.data,
+                    id=block.location.html_id(),
+                    capa_system=capa_system,
+                    # We choose to run without a fully initialized CapaModule
+                    capa_module=None,
+                    state={
+                        'done': user_state.get('done'),
+                        'correct_map': user_state.get('correct_map'),
+                        'student_answers': user_state.get('student_answers'),
+                        'has_saved_answers': user_state.get('has_saved_answers'),
+                        'input_state': user_state.get('input_state'),
+                        'seed': user_state.get('seed'),
+                    },
+                    seed=user_state.get('seed'),
+                    # extract_tree=False allows us to work without a fully initialized CapaModule
+                    # We'll still be able to find particular data in the XML when we need it
+                    extract_tree=False,
+                )
+            except Exception as e:
+                logger.error("XblockCompletionView - Error to create xml problem, block id: {}, error: {}".format(str(block.location), str(e)))
+                continue
             for answer_id, orig_answers in lcp.student_answers.items():
                 # Some types of problems have data in lcp.student_answers that isn't in lcp.problem_data.
                 # E.g. formulae do this to store the MathML version of the answer.
