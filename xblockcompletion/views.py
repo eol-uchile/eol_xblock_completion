@@ -17,15 +17,14 @@ from lms.djangoapps.instructor_analytics.basic import list_problem_responses, ge
 from django.core.exceptions import FieldError
 from django.contrib.auth.models import User
 from django.utils.translation import gettext as _
-from .utils import get_data_course
 import requests
 import json
 import six
 import logging
 from django.urls import reverse
 from lms.djangoapps.courseware.models import StudentModule
-from courseware.courses import get_course_by_id, get_course_with_access
-from courseware.access import has_access
+from lms.djangoapps.courseware.courses import get_course_by_id, get_course_with_access
+from lms.djangoapps.courseware.access import has_access
 from opaque_keys import InvalidKeyError
 from celery import current_task, task
 from lms.djangoapps.instructor_task.tasks_base import BaseInstructorTask
@@ -44,6 +43,10 @@ from django.core.files.base import ContentFile
 from lms.djangoapps.instructor import permissions
 import codecs
 import csv
+import re
+import capa.responsetypes as responsetypes
+from capa.safe_exec import safe_exec
+from lxml import etree
 logger = logging.getLogger(__name__)
 
 def task_process_data(request, data):
@@ -53,7 +56,7 @@ def task_process_data(request, data):
         task_type = 'EOL_Xblock_Completion_Resumen'
     task_class = process_data
     task_input = {'data': data }
-    task_key = ""
+    task_key = "EOL_Xblock_Completion_{}".format(data['course'])
 
     return submit_task(
         request,
@@ -83,9 +86,7 @@ def generate(_xmodule_instance_args, _entry_id, course_id, task_input, action_na
     task_progress.update_task_state(extra_meta=current_step)
     
     data = task_input.get('data')
-    filter_types = ['problem']
-    students = XblockCompletionView().get_all_enrolled_users(data['course'])
-    course_structure = get_data_course(data['course'])
+    #filter_types = ['problem']
 
     report_store = ReportStore.from_config('GRADES_DOWNLOAD')
     csv_name = 'Reporte_de_Preguntas'
@@ -100,10 +101,9 @@ def generate(_xmodule_instance_args, _entry_id, course_id, task_input, action_na
     output_buffer = ContentFile('')
     if six.PY2:
         output_buffer.write(codecs.BOM_UTF8)
-    csvwriter = csv.writer(output_buffer)
+    csvwriter = csv.writer(output_buffer, delimiter=';', quoting=csv.QUOTE_ALL)
 
-    student_states = XblockCompletionView().get_all_states(data['course'], filter_types)
-    csvwriter = XblockCompletionView()._build_student_data(data, students, course_structure, student_states, filter_types, csvwriter)
+    csvwriter = XblockCompletionView()._build_student_data(data, csvwriter)
 
     current_step = {'step': 'XblockCompletion - Uploading CSV'}
     task_progress.update_task_state(extra_meta=current_step)
@@ -123,7 +123,7 @@ def _get_utf8_encoded_rows(row):
     new list of rows with those strings encoded as utf-8 for CSV
     compatibility.
     """
-    
+
     if six.PY2:
         return [six.text_type(item).encode('utf-8') for item in row]
     else:
@@ -212,19 +212,44 @@ class XblockCompletionView(View):
         except InvalidKeyError:
             return False
 
-    def get_all_states(self, course_id, filter_types):
-        """
-            Get all student module of course
-        """
-        course_key = CourseKey.from_string(course_id)
-        smdat = StudentModule.objects.filter(course_id=course_key, module_type__in=filter_types).order_by('student__username').values('student__username', 'state', 'module_state_key')
-        response = defaultdict(list)
-        for module in smdat:
-            response[str(module['module_state_key'])].append({'username': module['student__username'], 'state': module['state']})
+    def get_block_keys(self, course_key):
+        smdat = list(StudentModule.objects.filter(
+            course_id=course_key, 
+            module_type="problem",
+            student__courseenrollment__mode="honor",
+            student__courseenrollment__is_active=1,
+            state__contains="attempts"
+            ).values('module_state_key').distinct())
+        return [x['module_state_key'] for x in smdat]
 
-        return response
+    def get_user_states(self, course_key, block_key):
+        smdat = list(StudentModule.objects.filter(
+            course_id=course_key, 
+            module_type="problem",
+            module_state_key=block_key,
+            student__courseenrollment__mode="honor",
+            student__courseenrollment__is_active=1,
+            state__contains="attempts"
+            ).values('student__username', 'student__email','student__edxloginuser__run', 'state').distinct())
+        return smdat
 
-    def _build_student_data(self, data, students, course_structure, student_states, filter_types, csvwriter):
+    def get_block_ancestors(self, xblock, store):
+        """
+        Returns information about the ancestors of an xblock.
+        """
+        ancestors = []
+
+        def collect_ancestor_info(ancestor):
+            """
+            Collect xblock info regarding the specified xblock and its ancestors.
+            """
+            if ancestor.location.block_type != 'course':
+                ancestors.append({'type': ancestor.location.block_type, 'display_name': ancestor.display_name})
+                collect_ancestor_info(store.get_item(ancestor.parent))
+        collect_ancestor_info(store.get_item(xblock.parent))
+        return ancestors
+
+    def _build_student_data(self, data, csvwriter):
         """
             Create list of list to make csv report
         """
@@ -233,200 +258,80 @@ class XblockCompletionView(View):
         is_resumen = data['format']
         course_key = CourseKey.from_string(course_id)
         if is_resumen:
-            header = ['Titulo', 'Username', 'Email', 'Run', 'Seccion', 'SubSeccion', 'Unidad', 'Intentos', 'Pts Ganados', 'Pts Posibles', 'Url', 'block_id']
+            header = ['Username', 'Email', 'Run', 'Seccion', 'SubSeccion', 'Unidad', 'Titulo', 'Intentos', 'Pts Ganados', 'Pts Posibles', 'block id', 'Has saved answers']
         else:
-            header = ['Titulo', 'Username', 'Email', 'Run', 'Seccion', 'SubSeccion', 'Unidad', 'Pregunta', 'Respuesta Estudiante', 'Resp. Correcta', 'Intentos', 'Pts Ganados', 'Pts Posibles', 'Pts Total Componente', 'Url', 'block_id']
+            header = ['Username', 'Email', 'Run', 'Seccion', 'SubSeccion', 'Unidad', 'Titulo', 'Pregunta', 'Respuesta Estudiante', 'Resp. Correcta', 'Intentos', 'Pts Ganados', 'Pts Posibles', 'Pts Total Componente', 'block id', 'Has saved answers', 'State']
         csvwriter.writerow(_get_utf8_encoded_rows(header))
-        max_count = None
         store = modulestore()
-        list_blocks = self.process_data_course(course_structure, filter_types, [], iteri=[1,1,1])
-        for block in list_blocks:
-            with store.bulk_operations(course_key):
-                block_key = UsageKey.from_string(block['block_id'])
-                if filter_types is not None and block_key.block_type not in filter_types:
+        list_blocks = self.get_block_keys(course_key)
+        with store.bulk_operations(course_key):
+            for block_key in list_blocks:
+                try:
+                    block_item = store.get_item(block_key)
+                except Exception as e:
                     continue
-                block_item = store.get_item(block_key)
-                generated_report_data = defaultdict(list)
-                if not is_resumen:
-                    generated_report_data = self.get_report_xblock(block_key, student_states[block['block_id']], block_item)
-                if generated_report_data is None:
-                    continue
-                jumo_to_url = url_base + reverse('jump_to',kwargs={
-                            'course_id': course_id,
-                            'location': block['block_id']})
-                for response in student_states[block['block_id']]:
-                    if response['username'] not in students:
-                        continue
-                    if is_resumen:
-                        if block_key.block_type != 'problem':
-                            pass
-                        else:
-                            responses = self.set_data_is_resumen(
-                                block_item.display_name, 
-                                block['block_id'],
-                                response,
-                                block['section'],
-                                block['subsection'],
-                                block['unit'],
-                                students, jumo_to_url
-                                )
-                            if responses:
-                                csvwriter.writerow(_get_utf8_encoded_rows(responses))
-                    else:
-                        # A human-readable location for the current block
-                        # A machine-friendly location for the current block
-                        # A block that has a single state per user can contain multiple responses
-                        # within the same state.
-                        if block_key.block_type != 'problem':
-                            pass
-                        else:
-                            user_states = generated_report_data.get(response['username'])
-                            if user_states:
-                                responses = self.set_data_is_all(
-                                        block_item.display_name, 
-                                        block['block_id'],
-                                        response,
-                                        block['section'],
-                                        block['subsection'],
-                                        block['unit'],
-                                        students,
-                                        user_states, jumo_to_url
-                                        )
-                                if responses:
-                                    csvwriter.writerows(ReportStore()._get_utf8_encoded_rows(responses))
+                # assume all block_key are directly children of unit
+                block_ancestors = self.get_block_ancestors(block_item, store)
+                display_name = block_item.display_name.replace("\n", "")
+                #jump_to_url = url_base + reverse('jump_to',kwargs={
+                #            'course_id': course_id,
+                #            'location': str(block_key)})
+                # only problem block
+                if is_resumen:
+                    student_states  = self.get_user_states(course_key, block_key)
+                    for response in student_states:
+                        user_state = json.loads(response['state'])
+                        report = {}
+                        report['username'] = response['student__username']
+                        report['email'] = response['student__email']
+                        report['user_rut'] = response['student__edxloginuser__run']
+                        report['attempts'] = user_state['attempts']
+                        report['gained'] = user_state['score']['raw_earned']
+                        report['total'] = user_state['score']['raw_possible']
+                        row = [
+                            response['student__username'],
+                            response['student__email'],
+                            response['student__edxloginuser__run'],
+                            block_ancestors[2]['display_name'],
+                            block_ancestors[1]['display_name'],
+                            block_ancestors[0]['display_name'],
+                            display_name,
+                            user_state['attempts'],
+                            user_state['score']['raw_earned'],
+                            user_state['score']['raw_possible'],
+                            str(block_key)
+                            ]
+                        if 'has_saved_answers' in user_state and user_state['has_saved_answers']:
+                            row.append('has_saved_answers')
+                        csvwriter.writerow(row)
+                else:
+                    for response in self.generate_report_data(block_item):
+                        if response is None:
+                            continue
+                        row = [                            
+                            response['username'],
+                            response['email'],
+                            response['user_rut'],
+                            block_ancestors[2]['display_name'],
+                            block_ancestors[1]['display_name'],
+                            block_ancestors[0]['display_name'],
+                            display_name,
+                            response['question'].replace("\n", ""),
+                            response['answer'].replace("\n", ""),
+                            response['correct_answer'].replace("\n", ""),
+                            response['attempts'],
+                            response['gained'],
+                            response['possible'],
+                            response['total'],
+                            str(block_key),
+                            'has_saved_answers' if response['has_saved_answers'] else ''
+                            ]
+                        if response['state']:
+                            row.append(response['state'])
+                        csvwriter.writerow(row)
         return csvwriter
 
-    def process_data_course(self, course_structure, filter_types, list_blocks, section='', subsection='', unit='', iteri=[1,1,1]):
-        """
-            Extract all block_type in filter_types from course_structure
-        """
-        if 'child_info' in course_structure:
-            for data in course_structure['child_info']['children']:
-                if data['category'] == 'chapter':
-                    aux = str(iteri[0]) + '.' +data['display_name']
-                    list_blocks = self.process_data_course(data, filter_types, list_blocks, section=aux, iteri=iteri)
-                    iteri[0] = iteri[0] + 1
-                    iteri[1] = 1
-                    iteri[2] = 1
-                elif data['category'] == 'sequential':
-                    aux = str(iteri[0]) + '.' + str(iteri[1]) + '.' + data['display_name']
-                    list_blocks = self.process_data_course(data, filter_types, list_blocks, section=section, subsection=aux, iteri=iteri)
-                    iteri[1] = iteri[1] + 1
-                    iteri[2] = 1
-                elif data['category'] == 'vertical':
-                    aux = str(iteri[0]) + '.' + str(iteri[1]) + '.' + str(iteri[2]) + '.' + data['display_name']
-                    list_blocks = self.process_data_course(data, filter_types, list_blocks, section=section, subsection=subsection, unit=aux, iteri=iteri)
-                    iteri[2] = iteri[2] + 1
-                elif data['category'] in filter_types:
-                    list_blocks.append({'section': section, 'subsection': subsection, 'unit': unit, 'block_id': data['id']})
-
-        return list_blocks
-
-    def set_data_is_resumen(self, title, block_id, response, section, subsection, unit, students, jumo_to_url):
-        """
-            Create a row according 
-            ['Titulo', 'Username', 'Email', 'Run', 'Seccion', 'SubSeccion', 'Unidad', 'Intentos', 'Pts Ganados', 'Pts Posibles','url', 'State', 'block_id']
-        """
-        raw_state = json.loads(response['state'])
-        responses = []
-        if 'attempts' in raw_state:
-            responses = [
-                title,
-                response['username'], 
-                students[response['username']]['email'], 
-                students[response['username']]['rut'],
-                section,
-                subsection,
-                unit,
-                raw_state['attempts'] ,
-                raw_state['score']['raw_earned'],
-                raw_state['score']['raw_possible'],
-                jumo_to_url,
-                block_id
-                ]
-
-        return responses
-
-    def set_data_is_all(self, title, block_id, response, section, subsection, unit, students, user_states, jumo_to_url):
-        """
-            Create a row according 
-            ['Titulo', 'Username', 'Email', 'Run', 'Seccion', 'SubSeccion', 'Unidad', 'Pregunta', 'Respuesta Estudiante', 'Resp. Correcta', 'Intentos', 'Pts Ganados', 'Pts Posibles', 'Pts Total Componente', 'block_id']
-        """
-        raw_state = json.loads(response['state'])
-        if 'attempts' not in raw_state:
-            return []
-        aux_response = []
-
-        # For each response in the block, copy over the basic data like the
-        # title, location, block_key and state, and add in the responses
-        pts_question = int(raw_state['score']['raw_possible']) / len(user_states)
-        for user_state in user_states:
-            correct_answer = ''
-            if _("Correct Answer") in user_state:
-                correct_answer = user_state[_("Correct Answer")]
-            responses = [
-                title,
-                response['username'], 
-                students[response['username']]['email'], 
-                students[response['username']]['rut'],
-                section,
-                subsection,
-                unit,
-                user_state[_("Question")],
-                user_state[_("Answer")],
-                correct_answer,
-                raw_state['attempts'],
-                pts_question if int(raw_state['score']['raw_earned']) > 0 and user_state[_("Answer")] == correct_answer else '0',
-                pts_question,
-                raw_state['score']['raw_possible'],
-                jumo_to_url,
-                block_id
-                ]
-            aux_response.append(responses)
-        return aux_response
-
-    def get_all_enrolled_users(self, course_key):
-        """
-            Get all enrolled student 
-        """
-        students = OrderedDict()
-        try:
-            enrolled_students = User.objects.filter(
-                courseenrollment__course_id=course_key,
-                courseenrollment__is_active=1
-            ).order_by('username').values('username', 'email', 'edxloginuser__run')
-        except FieldError:
-            enrolled_students = User.objects.filter(
-                courseenrollment__course_id=course_key,
-                courseenrollment__is_active=1
-            ).order_by('username').values('username', 'email')
-        
-        for user in enrolled_students:
-            run = ''
-            if 'edxloginuser__run' in user and user['edxloginuser__run'] != None:
-                run = user['edxloginuser__run']
-            students[user['username']] = {'email': user['email'], 'rut': run}
-        return students
-
-    def get_report_xblock(self, block_key, user_states, block):
-        """
-        # Blocks can implement the generate_report_data method to provide their own
-        # human-readable formatting for user state.
-        """
-        generated_report_data = defaultdict(list)
-
-        if block_key.block_type != 'problem':
-            return None
-        elif hasattr(block, 'generate_report_data'):
-            try:
-                for username, state in self.generate_report_data(user_states, block):
-                    generated_report_data[username].append(state)
-            except NotImplementedError:
-                logger.info('XblockCompletion - block {} dont have implemented generate_report_data'.format(str(block_key)))
-                pass
-        return generated_report_data
-
-    def generate_report_data(self, user_states, block):
+    def generate_report_data(self, block):
         """
         Return a list of student responses to this block in a readable way.
         Arguments:
@@ -441,11 +346,9 @@ class XblockCompletionView(View):
                            "Answer": "Four",
                            "Answer ID": "98e6a8e915904d5389821a94e48babcf_10_1"
             })
+        https://github.com/openedx/edx-platform/blob/open-release/olive.master/xmodule/capa/capa_problem.py
         """
         from capa.capa_problem import LoncapaProblem, LoncapaSystem
-
-        if block.category != 'problem':
-            raise NotImplementedError()
 
         capa_system = LoncapaSystem(
             ajax_url=None,
@@ -467,48 +370,75 @@ class XblockCompletionView(View):
             xqueue=None,
             matlab_api_key=None,
         )
-
-        for response in user_states:
+        student_states  = self.get_user_states(block.location.course_key, block.location)
+        for response in student_states:
             user_state = json.loads(response['state'])
             if 'student_answers' not in user_state:
                 continue
+            try:
+                lcp = LoncapaProblem(
+                    problem_text=block.data,
+                    id=block.location.html_id(),
+                    capa_system=capa_system,
+                    # We choose to run without a fully initialized CapaModule
+                    capa_module=None,
+                    state={
+                        'done': user_state.get('done'),
+                        'correct_map': user_state.get('correct_map'),
+                        'student_answers': user_state.get('student_answers'),
+                        'has_saved_answers': user_state.get('has_saved_answers'),
+                        'input_state': user_state.get('input_state'),
+                        'seed': user_state.get('seed'),
+                    },
+                    seed=user_state.get('seed'),
+                    # extract_tree=False allows us to work without a fully initialized CapaModule
+                    # We'll still be able to find particular data in the XML when we need it
+                    extract_tree=False,
+                )
+                for answer_id, orig_answers in lcp.student_answers.items():
+                    # Some types of problems have data in lcp.student_answers that isn't in lcp.problem_data.
+                    # E.g. formulae do this to store the MathML version of the answer.
+                    # We exclude these rows from the report because we only need the text-only answer.
+                    if answer_id.endswith('_dynamath'):
+                        continue
 
-            lcp = LoncapaProblem(
-                problem_text=block.data,
-                id=block.location.html_id(),
-                capa_system=capa_system,
-                # We choose to run without a fully initialized CapaModule
-                capa_module=None,
-                state={
-                    'done': user_state.get('done'),
-                    'correct_map': user_state.get('correct_map'),
-                    'student_answers': user_state.get('student_answers'),
-                    'has_saved_answers': user_state.get('has_saved_answers'),
-                    'input_state': user_state.get('input_state'),
-                    'seed': user_state.get('seed'),
-                },
-                seed=user_state.get('seed'),
-                # extract_tree=False allows us to work without a fully initialized CapaModule
-                # We'll still be able to find particular data in the XML when we need it
-                extract_tree=False,
-            )
+                    question_text = lcp.find_question_label(answer_id)
+                    answer_text = lcp.find_answer_text(answer_id, current_answer=orig_answers)
+                    correct_answer_text = lcp.find_correct_answer_text(answer_id)
 
-            for answer_id, orig_answers in lcp.student_answers.items():
-                # Some types of problems have data in lcp.student_answers that isn't in lcp.problem_data.
-                # E.g. formulae do this to store the MathML version of the answer.
-                # We exclude these rows from the report because we only need the text-only answer.
-                if answer_id.endswith('_dynamath'):
-                    continue
-
-                question_text = lcp.find_question_label(answer_id)
-                answer_text = lcp.find_answer_text(answer_id, current_answer=orig_answers)
-                correct_answer_text = lcp.find_correct_answer_text(answer_id)
-
+                    report = {
+                        'answer_id': answer_id,
+                        'question': question_text or '',
+                        'answer': answer_text or '',
+                        'correct_answer': correct_answer_text or ''
+                    }
+                    pts_question = float(user_state['score']['raw_possible']) / len(user_state['input_state'])
+                    report['username'] = response['student__username']
+                    report['email'] = response['student__email']
+                    report['user_rut'] = response['student__edxloginuser__run']
+                    report['attempts'] = user_state['attempts']
+                    report['gained'] = pts_question if int(user_state['score']['raw_earned']) > 0 and answer_text == correct_answer_text else '0'
+                    report['possible'] = pts_question
+                    report['total'] = user_state['score']['raw_possible']
+                    report['has_saved_answers'] = user_state.get('has_saved_answers', None)
+                    report['state'] = None
+                    yield report
+            except Exception as e:
+                logger.error("XblockCompletionView - Error to create xml problem, block id: {}, error: {}".format(str(block.location), str(e)))
                 report = {
-                    _("Answer ID"): answer_id,
-                    _("Question"): question_text,
-                    _("Answer"): answer_text,
+                    'answer_id': '',
+                    'question': '',
+                    'answer': '',
+                    'correct_answer': ''
                 }
-                if correct_answer_text is not None:
-                    report[_("Correct Answer")] = correct_answer_text
-                yield (response['username'], report)
+                report['username'] = response['student__username']
+                report['email'] = response['student__email']
+                report['user_rut'] = response['student__edxloginuser__run']
+                report['attempts'] = user_state.get('attempts', '')
+                report['gained'] = user_state['score']['raw_earned']
+                report['possible'] = user_state['score']['raw_possible']
+                report['total'] = user_state['score']['raw_possible']
+                report['has_saved_answers'] = user_state.get('has_saved_answers', None)
+                report['state'] = response['state']
+                yield report
+            
