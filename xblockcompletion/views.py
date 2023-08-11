@@ -272,7 +272,7 @@ class XblockCompletionView(View):
                     continue
                 # assume all block_key are directly children of unit
                 block_ancestors = self.get_block_ancestors(block_item, store)
-                display_name = block_item.display_name
+                display_name = block_item.display_name.replace("\n", "")
                 #jump_to_url = url_base + reverse('jump_to',kwargs={
                 #            'course_id': course_id,
                 #            'location': str(block_key)})
@@ -316,17 +316,18 @@ class XblockCompletionView(View):
                             block_ancestors[1]['display_name'],
                             block_ancestors[0]['display_name'],
                             display_name,
-                            response['question'],
-                            response['answer'],
-                            response['correct_answer'],
+                            response['question'].replace("\n", ""),
+                            response['answer'].replace("\n", ""),
+                            response['correct_answer'].replace("\n", ""),
                             response['attempts'],
                             response['gained'],
                             response['possible'],
                             response['total'],
-                            str(block_key)
+                            str(block_key),
+                            'has_saved_answers' if response['has_saved_answers'] else ''
                             ]
-                        if response['has_saved_answers']:
-                            row.append('has_saved_answers')
+                        if response['state']:
+                            row.append(response['state'])
                         csvwriter.writerow(row)
         return csvwriter
 
@@ -394,33 +395,50 @@ class XblockCompletionView(View):
                     # We'll still be able to find particular data in the XML when we need it
                     extract_tree=False,
                 )
+                for answer_id, orig_answers in lcp.student_answers.items():
+                    # Some types of problems have data in lcp.student_answers that isn't in lcp.problem_data.
+                    # E.g. formulae do this to store the MathML version of the answer.
+                    # We exclude these rows from the report because we only need the text-only answer.
+                    if answer_id.endswith('_dynamath'):
+                        continue
+
+                    question_text = lcp.find_question_label(answer_id)
+                    answer_text = lcp.find_answer_text(answer_id, current_answer=orig_answers)
+                    correct_answer_text = lcp.find_correct_answer_text(answer_id)
+
+                    report = {
+                        'answer_id': answer_id,
+                        'question': question_text,
+                        'answer': answer_text,
+                        'correct_answer': correct_answer_text if correct_answer_text is not None else ''
+                    }
+                    pts_question = float(user_state['score']['raw_possible']) / len(user_state['input_state'])
+                    report['username'] = response['student__username']
+                    report['email'] = response['student__email']
+                    report['user_rut'] = response['student__edxloginuser__run']
+                    report['attempts'] = user_state['attempts']
+                    report['gained'] = pts_question if int(user_state['score']['raw_earned']) > 0 and answer_text == correct_answer_text else '0'
+                    report['possible'] = pts_question
+                    report['total'] = user_state['score']['raw_possible']
+                    report['has_saved_answers'] = user_state.get('has_saved_answers', None)
+                    report['state'] = None
+                    yield report
             except Exception as e:
                 logger.error("XblockCompletionView - Error to create xml problem, block id: {}, error: {}".format(str(block.location), str(e)))
-                continue
-            for answer_id, orig_answers in lcp.student_answers.items():
-                # Some types of problems have data in lcp.student_answers that isn't in lcp.problem_data.
-                # E.g. formulae do this to store the MathML version of the answer.
-                # We exclude these rows from the report because we only need the text-only answer.
-                if answer_id.endswith('_dynamath'):
-                    continue
-
-                question_text = lcp.find_question_label(answer_id)
-                answer_text = lcp.find_answer_text(answer_id, current_answer=orig_answers)
-                correct_answer_text = lcp.find_correct_answer_text(answer_id)
-
                 report = {
-                    'answer_id': answer_id,
-                    'question': question_text,
-                    'answer': answer_text,
-                    'correct_answer': correct_answer_text if correct_answer_text is not None else ''
+                    'answer_id': '',
+                    'question': '',
+                    'answer': '',
+                    'correct_answer': ''
                 }
-                pts_question = float(user_state['score']['raw_possible']) / len(user_state['input_state'])
                 report['username'] = response['student__username']
                 report['email'] = response['student__email']
                 report['user_rut'] = response['student__edxloginuser__run']
-                report['attempts'] = user_state['attempts']
-                report['gained'] = pts_question if int(user_state['score']['raw_earned']) > 0 and answer_text == correct_answer_text else '0'
-                report['possible'] = pts_question
+                report['attempts'] = user_state.get('attempts', '')
+                report['gained'] = user_state['score']['raw_earned']
+                report['possible'] = user_state['score']['raw_possible']
                 report['total'] = user_state['score']['raw_possible']
                 report['has_saved_answers'] = user_state.get('has_saved_answers', None)
+                report['state'] = response['state']
                 yield report
+            

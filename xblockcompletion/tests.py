@@ -192,11 +192,12 @@ class TestXblockCompletionView(ModuleStoreTestCase):
             'gained': '0',
             'possible': '1.0',
             'total': '3',
-            'has_saved_answers':None
+            'has_saved_answers':None,
+            'state': '{}'
         }
         state_2 = {
             'answer_id': 'answer_id',
-            'question': 'question_text',
+            'question': 'question_text\n',
             'answer': 'correct_answer_text',
             'correct_answer': 'correct_answer_text',
             'username': self.student.username,
@@ -206,7 +207,8 @@ class TestXblockCompletionView(ModuleStoreTestCase):
             'gained': '1.0',
             'possible': '1.0',
             'total': '3',
-            'has_saved_answers': True
+            'has_saved_answers': True,
+            'state': '{}'
         }
         report.return_value = [state_1, state_2]
         from lms.djangoapps.courseware.models import StudentModule
