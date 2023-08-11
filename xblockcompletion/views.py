@@ -260,7 +260,7 @@ class XblockCompletionView(View):
         if is_resumen:
             header = ['Username', 'Email', 'Run', 'Seccion', 'SubSeccion', 'Unidad', 'Titulo', 'Intentos', 'Pts Ganados', 'Pts Posibles', 'block id', 'Has saved answers']
         else:
-            header = ['Username', 'Email', 'Run', 'Seccion', 'SubSeccion', 'Unidad', 'Titulo', 'Pregunta', 'Respuesta Estudiante', 'Resp. Correcta', 'Intentos', 'Pts Ganados', 'Pts Posibles', 'Pts Total Componente', 'block id', 'Has saved answers']
+            header = ['Username', 'Email', 'Run', 'Seccion', 'SubSeccion', 'Unidad', 'Titulo', 'Pregunta', 'Respuesta Estudiante', 'Resp. Correcta', 'Intentos', 'Pts Ganados', 'Pts Posibles', 'Pts Total Componente', 'block id', 'Has saved answers', 'State']
         csvwriter.writerow(_get_utf8_encoded_rows(header))
         store = modulestore()
         list_blocks = self.get_block_keys(course_key)
