@@ -408,9 +408,9 @@ class XblockCompletionView(View):
 
                     report = {
                         'answer_id': answer_id,
-                        'question': question_text,
-                        'answer': answer_text,
-                        'correct_answer': correct_answer_text if correct_answer_text is not None else ''
+                        'question': question_text or '',
+                        'answer': answer_text or '',
+                        'correct_answer': correct_answer_text or ''
                     }
                     pts_question = float(user_state['score']['raw_possible']) / len(user_state['input_state'])
                     report['username'] = response['student__username']
