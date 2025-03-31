@@ -281,13 +281,19 @@ class XblockCompletionView(View):
                     student_states  = self.get_user_states(course_key, block_key)
                     for response in student_states:
                         user_state = json.loads(response['state'])
+                        # Total points of a block
+                        total_points = getattr(block_item, 'weight', None)
+                        if total_points is None:
+                            total_points = float( user_state['score']['raw_possible'] )
+                        # Points obtained for each question
+                        pts_question = float( total_points / len(user_state['correct_map']))
                         report = {}
                         report['username'] = response['student__username']
                         report['email'] = response['student__email']
                         report['user_rut'] = response['student__edxloginuser__run']
                         report['attempts'] = user_state['attempts']
-                        report['gained'] = user_state['score']['raw_earned']
-                        report['total'] = user_state['score']['raw_possible']
+                        report['gained'] = round(user_state['score']['raw_earned'] * pts_question, 2),
+                        report['total'] =  round(total_points, 2)
                         row = [
                             response['student__username'],
                             response['student__email'],
@@ -297,8 +303,8 @@ class XblockCompletionView(View):
                             block_ancestors[0]['display_name'],
                             display_name,
                             user_state['attempts'],
-                            user_state['score']['raw_earned'],
-                            user_state['score']['raw_possible'],
+                            round(float(user_state['score']['raw_earned'] * pts_question), 2),
+                            round(float(total_points), 2),
                             str(block_key)
                             ]
                         if 'has_saved_answers' in user_state and user_state['has_saved_answers']:
@@ -412,19 +418,32 @@ class XblockCompletionView(View):
                         'answer': answer_text or '',
                         'correct_answer': correct_answer_text or ''
                     }
-                    pts_question = float(user_state['score']['raw_possible']) / len(user_state['input_state'])
+                    # Total points of a block
+                    total_points = getattr(block, 'weight', None)
+                    if total_points is None:
+                        total_points = float(user_state['score']['raw_possible'])
+                    # Points obtained for each question
+                    pts_question = round(float( total_points  / len(user_state['correct_map'])), 2)
                     report['username'] = response['student__username']
                     report['email'] = response['student__email']
                     report['user_rut'] = response['student__edxloginuser__run']
                     report['attempts'] = user_state['attempts']
-                    report['gained'] = pts_question if int(user_state['score']['raw_earned']) > 0 and answer_text == correct_answer_text else '0'
+                    # Points earned by the user on a particular question
+                    report['gained'] = pts_question if user_state['correct_map'][answer_id]['correctness'] == "correct" else float(0)
+                    # Possible points for each question
                     report['possible'] = pts_question
-                    report['total'] = user_state['score']['raw_possible']
+                    report['total'] = round(float(total_points), 2)
                     report['has_saved_answers'] = user_state.get('has_saved_answers', None)
                     report['state'] = None
                     yield report
             except Exception as e:
                 logger.error("XblockCompletionView - Error to create xml problem, block id: {}, error: {}".format(str(block.location), str(e)))
+                # Total points of a block
+                total_points = getattr(block, 'weight', None)
+                if total_points is None:
+                    total_points = float(user_state['score']['raw_possible'])
+                # Points obtained for each question
+                pts_question = round(float( total_points  / len(user_state['correct_map'])), 2)
                 report = {
                     'answer_id': '',
                     'question': '',
@@ -435,9 +454,11 @@ class XblockCompletionView(View):
                 report['email'] = response['student__email']
                 report['user_rut'] = response['student__edxloginuser__run']
                 report['attempts'] = user_state.get('attempts', '')
-                report['gained'] = user_state['score']['raw_earned']
-                report['possible'] = user_state['score']['raw_possible']
-                report['total'] = user_state['score']['raw_possible']
+                # Points earned by the user on a particular question
+                report['gained'] = pts_question if user_state['correct_map'][answer_id]['correctness'] == "correct" else float(0)
+                # Possible points for each question
+                report['possible'] = pts_question
+                report['total'] = round(float(total_points), 2)
                 report['has_saved_answers'] = user_state.get('has_saved_answers', None)
                 report['state'] = response['state']
                 yield report

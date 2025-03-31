@@ -53,7 +53,8 @@ class TestXblockCompletionView(ModuleStoreTestCase):
             self.items = [
                 ItemFactory.create(
                     parent_location=self.subsection.location,
-                    category="problem"
+                    category="problem",
+                    weight = 9
                 )
                 for __ in range(3)
             ]
@@ -145,14 +146,14 @@ class TestXblockCompletionView(ModuleStoreTestCase):
             student=self.student,
             course_id=self.course.id,
             module_type='problem',
-            state='{"score": {"raw_earned": 0, "raw_possible": 3}, "seed": 1, "attempts":1,"has_saved_answers": true}')
+            state='{"score": {"raw_earned": 1, "raw_possible": 3}, "seed": 1, "attempts":1,"has_saved_answers": true, "correct_map": {"id_question_2_1": {"correctness": "correct"},"id_question_3_1": {"correctness": "incorrect"}, "id_question_4_1": {"correctness": "incorrect"} } }')
         module.save()
         module2 = StudentModule(
             module_state_key=self.items[1].location,
             student=self.student,
             course_id=self.course.id,
             module_type='problem',
-            state='{"score": {"raw_earned": 0, "raw_possible": 3}, "seed": 1}')
+            state='{"score": {"raw_earned": 0, "raw_possible": 3}, "seed": 1, "correct_map": {"id_question_2_1": {"correctness": "incorrect"},"id_question_3_1": {"correctness": "incorrect"}, "id_question_4_1": {"correctness": "incorrect"} } }')
         module2.save()
         with patch('lms.djangoapps.instructor_task.tasks_helper.runner._get_current_task'):
             result = generate(
@@ -169,7 +170,7 @@ class TestXblockCompletionView(ModuleStoreTestCase):
             '"{}"'.format(self.section.display_name),
             '"{}"'.format( self.subsection.display_name),
             '"{}"'.format(self.items[0].display_name),
-            '"1"','"0"','"3"','"{}"'.format(str(self.items[0].location)) ,'"has_saved_answers"'
+            '"1"','"3.0"','"9.0"','"{}"'.format(str(self.items[0].location)) ,'"has_saved_answers"'
         ])
         expected_data = [header_row, student1_row]
         self._verify_csv_file_report(report_store, expected_data)
@@ -190,8 +191,8 @@ class TestXblockCompletionView(ModuleStoreTestCase):
             'user_rut': '',
             'attempts': '1',
             'gained': '0',
-            'possible': '1.0',
-            'total': '3',
+            'possible': '3.0',
+            'total': '9',
             'has_saved_answers':None,
             'state': '{}'
         }
@@ -204,9 +205,9 @@ class TestXblockCompletionView(ModuleStoreTestCase):
             'email': self.student.email,
             'user_rut': '',
             'attempts': '1',
-            'gained': '1.0',
-            'possible': '1.0',
-            'total': '3',
+            'gained': '3.0',
+            'possible': '3.0',
+            'total': '9',
             'has_saved_answers': True,
             'state': '{}'
         }
@@ -219,7 +220,7 @@ class TestXblockCompletionView(ModuleStoreTestCase):
             student=self.student,
             course_id=self.course.id,
             module_type='problem',
-            state='{"score": {"raw_earned": 1, "raw_possible": 3}, "seed": 1, "attempts": 1}')
+            state='{"score": {"raw_earned": 1, "raw_possible": 3}, "seed": 1, "attempts": 1, "correct_map": {"id_question_2_1": {"correctness": "correct"},"id_question_3_1": {"correctness": "incorrect"}, "id_question_4_1": {"correctness": "incorrect"} } }')
         module.save()
         with patch('lms.djangoapps.instructor_task.tasks_helper.runner._get_current_task'):
             result = generate(
@@ -237,8 +238,8 @@ class TestXblockCompletionView(ModuleStoreTestCase):
             '"{}"'.format( self.subsection.display_name),
              '"{}"'.format(self.items[0].display_name),
         ])
-        student_row = base_student_row + ';"question_text";"answer_text";"correct_answer_text";"1";"0";"1.0";"3"'
-        student_row2 = base_student_row + ';"question_text";"correct_answer_text";"correct_answer_text";"1";"1.0";"1.0";"3";"'+str(self.items[0].location)+'";"has_saved_answers"'
+        student_row = base_student_row + ';"question_text";"answer_text";"correct_answer_text";"1";"0";"3.0";"9"'
+        student_row2 = base_student_row + ';"question_text";"correct_answer_text";"correct_answer_text";"1";"3.0";"3.0";"9";"'+str(self.items[0].location)+'";"has_saved_answers"'
         expected_data = [header_row, student_row, student_row2, student_row]
         self._verify_csv_file_report(report_store, expected_data)
 
