@@ -2,10 +2,10 @@ import setuptools
 
 setuptools.setup(
     name="xblockcompletion",
-    version="0.0.1",
-    author="Luis Santana",
-    author_email="luis.santana@uchile.cl",
-    description=".",
+    version="0.0.2",
+    author="Oficina EOL UChile",
+    author_email="eol-ing@uchile.cl",
+    description="EOL Xbloxk Completion",
     url="https://eol.uchile.cl",
     packages=setuptools.find_packages(),
     install_requires=["unidecode>=1.1.1"],
