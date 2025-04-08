@@ -1,52 +1,38 @@
 #!/usr/bin/env python
 # -- coding: utf-8 --
-
-from django.conf import settings
-from django.shortcuts import render
-from django.views.generic.base import View
-from completion.models import BlockCompletion
-from opaque_keys.edx.keys import CourseKey, UsageKey, LearningContextKey
-from django.http import Http404, HttpResponse, JsonResponse
-
-from collections import OrderedDict, defaultdict
-from django.contrib.auth import get_user_model
-from xmodule.modulestore.django import modulestore
-from lms.djangoapps.course_blocks.api import get_course_blocks
-from lms.djangoapps.instructor_task.tasks_helper.grades import  ProblemResponses
-from lms.djangoapps.instructor_analytics.basic import list_problem_responses, get_response_state
-from django.core.exceptions import FieldError
-from django.contrib.auth.models import User
-from django.utils.translation import gettext as _
-import requests
-import json
-import six
-import logging
-from django.urls import reverse
-from lms.djangoapps.courseware.models import StudentModule
-from lms.djangoapps.courseware.courses import get_course_by_id, get_course_with_access
-from lms.djangoapps.courseware.access import has_access
-from opaque_keys import InvalidKeyError
-from celery import current_task, task
-from lms.djangoapps.instructor_task.tasks_base import BaseInstructorTask
-from lms.djangoapps.instructor_task.api_helper import submit_task, AlreadyRunningError
-from functools import partial
-from time import time
-from pytz import UTC
-from datetime import datetime
-from lms.djangoapps.instructor_task.tasks_helper.runner import run_main_task, TaskProgress
-from django.utils.translation import ugettext_noop
-from lms.djangoapps.instructor_task.tasks_helper.utils import upload_csv_to_report_store
-from django.db import IntegrityError, transaction
-from common.djangoapps.util.file import course_filename_prefix_generator
-from lms.djangoapps.instructor_task.models import ReportStore
-from django.core.files.base import ContentFile
-from lms.djangoapps.instructor import permissions
+# Python Standard Libraries
 import codecs
 import csv
-import re
-import capa.responsetypes as responsetypes
-from capa.safe_exec import safe_exec
-from lxml import etree
+import json
+import logging
+from datetime import datetime
+from functools import partial
+from time import time
+
+# Installed packages (via pip)
+from celery import task
+from django.core.files.base import ContentFile
+from django.db import transaction
+from django.http import Http404, JsonResponse
+from django.utils.translation import gettext as _, ugettext_noop
+from django.views.generic.base import View
+from pytz import UTC
+import six
+
+# Edx dependencies
+from common.djangoapps.util.file import course_filename_prefix_generator
+from lms.djangoapps.courseware.access import has_access
+from lms.djangoapps.courseware.courses import get_course_with_access
+from lms.djangoapps.courseware.models import StudentModule
+from lms.djangoapps.instructor import permissions
+from lms.djangoapps.instructor_task.api_helper import submit_task, AlreadyRunningError
+from lms.djangoapps.instructor_task.tasks_helper.runner import run_main_task, TaskProgress
+from lms.djangoapps.instructor_task.tasks_base import BaseInstructorTask
+from lms.djangoapps.instructor_task.models import ReportStore
+from opaque_keys import InvalidKeyError
+from opaque_keys.edx.keys import CourseKey
+from xmodule.modulestore.django import modulestore
+
 logger = logging.getLogger(__name__)
 
 def task_process_data(request, data):
@@ -281,13 +267,19 @@ class XblockCompletionView(View):
                     student_states  = self.get_user_states(course_key, block_key)
                     for response in student_states:
                         user_state = json.loads(response['state'])
+                        # Total points of a block
+                        total_points = getattr(block_item, 'weight', None)
+                        if total_points is None:
+                            total_points = float( user_state['score']['raw_possible'] )
+                        # Points obtained for each question
+                        pts_question = float( total_points / len(user_state['correct_map']))
                         report = {}
                         report['username'] = response['student__username']
                         report['email'] = response['student__email']
                         report['user_rut'] = response['student__edxloginuser__run']
                         report['attempts'] = user_state['attempts']
-                        report['gained'] = user_state['score']['raw_earned']
-                        report['total'] = user_state['score']['raw_possible']
+                        report['gained'] = round(user_state['score']['raw_earned'] * pts_question, 2),
+                        report['total'] =  round(total_points, 2)
                         row = [
                             response['student__username'],
                             response['student__email'],
@@ -297,8 +289,8 @@ class XblockCompletionView(View):
                             block_ancestors[0]['display_name'],
                             display_name,
                             user_state['attempts'],
-                            user_state['score']['raw_earned'],
-                            user_state['score']['raw_possible'],
+                            round(float(user_state['score']['raw_earned'] * pts_question), 2),
+                            round(float(total_points), 2),
                             str(block_key)
                             ]
                         if 'has_saved_answers' in user_state and user_state['has_saved_answers']:
@@ -412,19 +404,32 @@ class XblockCompletionView(View):
                         'answer': answer_text or '',
                         'correct_answer': correct_answer_text or ''
                     }
-                    pts_question = float(user_state['score']['raw_possible']) / len(user_state['input_state'])
+                    # Total points of a block
+                    total_points = getattr(block, 'weight', None)
+                    if total_points is None:
+                        total_points = float(user_state['score']['raw_possible'])
+                    # Points obtained for each question
+                    pts_question = round(float( total_points  / len(user_state['correct_map'])), 2)
                     report['username'] = response['student__username']
                     report['email'] = response['student__email']
                     report['user_rut'] = response['student__edxloginuser__run']
                     report['attempts'] = user_state['attempts']
-                    report['gained'] = pts_question if int(user_state['score']['raw_earned']) > 0 and answer_text == correct_answer_text else '0'
+                    # Points earned by the user on a particular question
+                    report['gained'] = pts_question if user_state['correct_map'][answer_id]['correctness'] == "correct" else float(0)
+                    # Possible points for each question
                     report['possible'] = pts_question
-                    report['total'] = user_state['score']['raw_possible']
+                    report['total'] = round(float(total_points), 2)
                     report['has_saved_answers'] = user_state.get('has_saved_answers', None)
                     report['state'] = None
                     yield report
             except Exception as e:
                 logger.error("XblockCompletionView - Error to create xml problem, block id: {}, error: {}".format(str(block.location), str(e)))
+                # Total points of a block
+                total_points = getattr(block, 'weight', None)
+                if total_points is None:
+                    total_points = float(user_state['score']['raw_possible'])
+                # Points obtained for each question
+                pts_question = round(float( total_points  / len(user_state['correct_map'])), 2)
                 report = {
                     'answer_id': '',
                     'question': '',
@@ -435,9 +440,11 @@ class XblockCompletionView(View):
                 report['email'] = response['student__email']
                 report['user_rut'] = response['student__edxloginuser__run']
                 report['attempts'] = user_state.get('attempts', '')
-                report['gained'] = user_state['score']['raw_earned']
-                report['possible'] = user_state['score']['raw_possible']
-                report['total'] = user_state['score']['raw_possible']
+                # Points earned by the user on a particular question
+                report['gained'] = pts_question if user_state['correct_map'][answer_id]['correctness'] == "correct" else float(0)
+                # Possible points for each question
+                report['possible'] = pts_question
+                report['total'] = round(float(total_points), 2)
                 report['has_saved_answers'] = user_state.get('has_saved_answers', None)
                 report['state'] = response['state']
                 yield report
