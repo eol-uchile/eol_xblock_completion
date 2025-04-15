@@ -267,6 +267,9 @@ class XblockCompletionView(View):
                     student_states  = self.get_user_states(course_key, block_key)
                     for response in student_states:
                         user_state = json.loads(response['state'])
+                        # Check if correct_map exist
+                        if user_state.get('correct_map', None) is None:
+                            continue
                         # Total points of a block
                         total_points = getattr(block_item, 'weight', None)
                         if total_points is None:
@@ -393,7 +396,9 @@ class XblockCompletionView(View):
                     # We exclude these rows from the report because we only need the text-only answer.
                     if answer_id.endswith('_dynamath'):
                         continue
-
+                    # Check if correct_map exist
+                    if user_state.get('correct_map', None) is None:
+                        continue
                     question_text = lcp.find_question_label(answer_id)
                     answer_text = lcp.find_answer_text(answer_id, current_answer=orig_answers)
                     correct_answer_text = lcp.find_correct_answer_text(answer_id)
@@ -424,6 +429,9 @@ class XblockCompletionView(View):
                     yield report
             except Exception as e:
                 logger.error("XblockCompletionView - Error to create xml problem, block id: {}, error: {}".format(str(block.location), str(e)))
+                # Check if correct_map exist
+                if user_state.get('correct_map', None) is None:
+                    continue
                 # Total points of a block
                 total_points = getattr(block, 'weight', None)
                 if total_points is None:
