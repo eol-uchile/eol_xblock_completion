@@ -17,6 +17,7 @@ from django.http import Http404, JsonResponse
 from django.utils.translation import gettext as _, ugettext_noop
 from django.views.generic.base import View
 from pytz import UTC
+from uchileedxlogin.services.interface import get_user_id_doc_id_pairs
 import six
 
 # Edx dependencies
@@ -209,15 +210,21 @@ class XblockCompletionView(View):
         return [x['module_state_key'] for x in smdat]
 
     def get_user_states(self, course_key, block_key):
-        smdat = list(StudentModule.objects.filter(
+        smdat = StudentModule.objects.filter(
             course_id=course_key, 
             module_type="problem",
             module_state_key=block_key,
             student__courseenrollment__mode="honor",
             student__courseenrollment__is_active=1,
             state__contains="attempts"
-            ).values('student__username', 'student__email','student__edxloginuser__run', 'state').distinct())
-        return smdat
+            ).values('student__id', 'student__username', 'student__email', 'state').distinct()
+        user_id_list = smdat.values_list('student__id', flat=True)
+        user_doc_id = get_user_id_doc_id_pairs(user_id_list)
+        if user_doc_id != []:
+            user_doc_id_dict = {id: doc_id for id, doc_id in user_doc_id}
+            for user in smdat:
+                user['doc_id'] = user_doc_id_dict.get(user['student__username'], '')
+        return list(smdat)
 
     def get_block_ancestors(self, xblock, store):
         """
@@ -279,14 +286,14 @@ class XblockCompletionView(View):
                         report = {}
                         report['username'] = response['student__username']
                         report['email'] = response['student__email']
-                        report['user_rut'] = response['student__edxloginuser__run']
+                        report['doc_id'] = response['doc_id']
                         report['attempts'] = user_state['attempts']
                         report['gained'] = round(user_state['score']['raw_earned'] * pts_question, 2),
                         report['total'] =  round(total_points, 2)
                         row = [
                             response['student__username'],
                             response['student__email'],
-                            response['student__edxloginuser__run'],
+                            response['doc_id'],
                             block_ancestors[2]['display_name'],
                             block_ancestors[1]['display_name'],
                             block_ancestors[0]['display_name'],
@@ -306,7 +313,7 @@ class XblockCompletionView(View):
                         row = [                            
                             response['username'],
                             response['email'],
-                            response['user_rut'],
+                            response['doc_id'],
                             block_ancestors[2]['display_name'],
                             block_ancestors[1]['display_name'],
                             block_ancestors[0]['display_name'],
@@ -417,7 +424,7 @@ class XblockCompletionView(View):
                     pts_question = round(float( total_points  / len(user_state['correct_map'])), 2)
                     report['username'] = response['student__username']
                     report['email'] = response['student__email']
-                    report['user_rut'] = response['student__edxloginuser__run']
+                    report['doc_id'] = response['doc_id']
                     report['attempts'] = user_state['attempts']
                     # Points earned by the user on a particular question
                     report['gained'] = pts_question if user_state['correct_map'][answer_id]['correctness'] == "correct" else float(0)
@@ -446,7 +453,7 @@ class XblockCompletionView(View):
                 }
                 report['username'] = response['student__username']
                 report['email'] = response['student__email']
-                report['user_rut'] = response['student__edxloginuser__run']
+                report['doc_id'] = response['doc_id']
                 report['attempts'] = user_state.get('attempts', '')
                 # Points earned by the user on a particular question
                 report['gained'] = pts_question if user_state['correct_map'][answer_id]['correctness'] == "correct" else float(0)
