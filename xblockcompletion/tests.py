@@ -14,6 +14,7 @@ from common.djangoapps.student.roles import CourseInstructorRole
 from openedx.core.djangoapps.content.course_overviews.models import CourseOverview
 from xmodule.modulestore.tests.django_utils import ModuleStoreTestCase
 from xmodule.modulestore.tests.factories import CourseFactory, ItemFactory
+from lms.djangoapps.courseware.models import StudentModule
 from lms.djangoapps.instructor_task.models import ReportStore
 
 # Internal project dependencies
@@ -129,7 +130,6 @@ class TestXblockCompletionView(ModuleStoreTestCase):
         test to generate course survey report
         and then test the report authenticity.
         """
-        from lms.djangoapps.courseware.models import StudentModule
         data = {'format': True, 'course': str(self.course.id), 'base_url':'this_is_a_url'}
         task_input = {'data': data }
         module = StudentModule(
@@ -179,7 +179,7 @@ class TestXblockCompletionView(ModuleStoreTestCase):
             'correct_answer': 'correct_answer_text',
             'username': self.student.username,
             'email': self.student.email,
-            'user_rut': '',
+            'doc_id': '000000001K',
             'attempts': '1',
             'gained': '0',
             'possible': '3.0',
@@ -194,7 +194,7 @@ class TestXblockCompletionView(ModuleStoreTestCase):
             'correct_answer': 'correct_answer_text',
             'username': self.student.username,
             'email': self.student.email,
-            'user_rut': '',
+            'doc_id': '000000001K',
             'attempts': '1',
             'gained': '3.0',
             'possible': '3.0',
@@ -203,7 +203,6 @@ class TestXblockCompletionView(ModuleStoreTestCase):
             'state': '{}'
         }
         report.return_value = [state_1, state_2]
-        from lms.djangoapps.courseware.models import StudentModule
         data = {'format': False, 'course': str(self.course.id), 'base_url':'this_is_a_url'}
         task_input = {'data': data }
         module = StudentModule(
@@ -223,7 +222,7 @@ class TestXblockCompletionView(ModuleStoreTestCase):
         base_student_row = ";".join([           
             '"{}"'.format(self.student.username),
             '"{}"'.format(self.student.email),
-            '""',
+            '"{}"'.format('000000001K'),
             '"{}"'.format(self.chapter.display_name),
             '"{}"'.format(self.section.display_name),
             '"{}"'.format( self.subsection.display_name),
@@ -272,7 +271,6 @@ class TestXblockCompletionView(ModuleStoreTestCase):
         """
             Test xblockcompletion view when no exitst format
         """
-        from lms.djangoapps.courseware.models import StudentModule
         data = {
             'course': str(self.course.id)
         }
@@ -284,7 +282,6 @@ class TestXblockCompletionView(ModuleStoreTestCase):
         """
             Test xblockcompletion view no exitst course params
         """
-        from lms.djangoapps.courseware.models import StudentModule
         data = {
             'format':'all'
         }
@@ -296,7 +293,6 @@ class TestXblockCompletionView(ModuleStoreTestCase):
         """
             Test xblockcompletion view when course_no_exists
         """
-        from lms.djangoapps.courseware.models import StudentModule
         data = {
             'format':'all',
             'course': 'course-v1:eol+test101+2020'
