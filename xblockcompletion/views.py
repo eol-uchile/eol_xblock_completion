@@ -17,7 +17,7 @@ from django.http import Http404, JsonResponse
 from django.utils.translation import gettext as _, ugettext_noop
 from django.views.generic.base import View
 from pytz import UTC
-from uchileedxlogin.services.interface import get_user_id_doc_id_pairs
+from eol_sso.services.interface import get_user_id_with_indiv_id_list
 import six
 
 # Edx dependencies
@@ -219,11 +219,11 @@ class XblockCompletionView(View):
             state__contains="attempts"
             ).values('student__id', 'student__username', 'student__email', 'state').distinct()
         user_id_list = smdat.values_list('student__id', flat=True)
-        user_doc_id = get_user_id_doc_id_pairs(user_id_list)
-        if user_doc_id != []:
-            user_doc_id_dict = {id: doc_id for id, doc_id in user_doc_id}
+        user_id_indiv_id_list = get_user_id_with_indiv_id_list(user_id_list)
+        if user_id_indiv_id_list != []:
+            user_indiv_id_dict = {id: indiv_id for id, indiv_id in user_id_indiv_id_list}
             for user in smdat:
-                user['doc_id'] = user_doc_id_dict.get(user['student__username'], '')
+                user['indiv_id'] = user_indiv_id_dict.get(user['student__id'], '')
         return list(smdat)
 
     def get_block_ancestors(self, xblock, store):
@@ -286,14 +286,14 @@ class XblockCompletionView(View):
                         report = {}
                         report['username'] = response['student__username']
                         report['email'] = response['student__email']
-                        report['doc_id'] = response['doc_id']
+                        report['indiv_id'] = response['indiv_id']
                         report['attempts'] = user_state['attempts']
                         report['gained'] = round(user_state['score']['raw_earned'] * pts_question, 2),
                         report['total'] =  round(total_points, 2)
                         row = [
                             response['student__username'],
                             response['student__email'],
-                            response['doc_id'],
+                            response['indiv_id'],
                             block_ancestors[2]['display_name'],
                             block_ancestors[1]['display_name'],
                             block_ancestors[0]['display_name'],
@@ -313,7 +313,7 @@ class XblockCompletionView(View):
                         row = [                            
                             response['username'],
                             response['email'],
-                            response['doc_id'],
+                            response['indiv_id'],
                             block_ancestors[2]['display_name'],
                             block_ancestors[1]['display_name'],
                             block_ancestors[0]['display_name'],
@@ -424,7 +424,7 @@ class XblockCompletionView(View):
                     pts_question = round(float( total_points  / len(user_state['correct_map'])), 2)
                     report['username'] = response['student__username']
                     report['email'] = response['student__email']
-                    report['doc_id'] = response['doc_id']
+                    report['indiv_id'] = response['indiv_id']
                     report['attempts'] = user_state['attempts']
                     # Points earned by the user on a particular question
                     report['gained'] = pts_question if user_state['correct_map'][answer_id]['correctness'] == "correct" else float(0)
@@ -453,7 +453,7 @@ class XblockCompletionView(View):
                 }
                 report['username'] = response['student__username']
                 report['email'] = response['student__email']
-                report['doc_id'] = response['doc_id']
+                report['indiv_id'] = response['indiv_id']
                 report['attempts'] = user_state.get('attempts', '')
                 # Points earned by the user on a particular question
                 report['gained'] = pts_question if user_state['correct_map'][answer_id]['correctness'] == "correct" else float(0)
