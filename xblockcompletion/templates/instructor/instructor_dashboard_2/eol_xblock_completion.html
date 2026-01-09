@@ -1,0 +1,34 @@
+<%page expression_filter="h"/>
+<%namespace name='static' file='/static_content.html'/>
+<%!
+from django.utils.translation import ugettext as _
+import urllib
+from django.urls import reverse
+%>
+<%
+xblockcompletion_url_resumen = '{}?{}'.format(reverse('xblockcompletion-data:data'), urllib.parse.urlencode({'format': 'resumen', 'course': str(course.id)}))
+xblockcompletion_url_all = '{}?{}'.format(reverse('xblockcompletion-data:data'), urllib.parse.urlencode({'format': 'all', 'course': str(course.id)}))
+%>
+<script type="text/javascript" src="${static.url('xblockcompletion/js/xblockcompletion.js')}"></script>
+<link rel="stylesheet" type="text/css" href="${static.url('xblockcompletion/css/xblockcompletion.css')}"/>
+
+<div class='xblockcompletion-report'>
+  <h4 class="hd hd-4">${_("Problem report")}</h4>
+  <p>${_("There are two ways to generate a problem report in CSV format")}:</p>
+  <ul>
+    <li>
+      <p><strong>${_("Summary Report")}:</strong> ${_("Generates a report of all problem-type blocks showing attempts, obtained score and possible score of each student.")}</p>
+    </li>
+    <li>
+      <p><strong>${_("Complete Report")}:</strong> ${_("Generates a report of all questions in problem-type blocks showing the question, students answer, correct answer, attempts, obtained score and block possible score for each student.")}</p>
+    </li>
+  </ul>
+  <p><input onclick="generate_report_xblockcompletion(this)" type="button" name="xblockcompletion-report-resumen" value="${_("Summary Report")}" data-endpoint="${ xblockcompletion_url_resumen }"/>
+  <input onclick="generate_report_xblockcompletion(this)" type="button" name="xblockcompletion-report-all" value="${_("Complete Report")}" data-endpoint="${ xblockcompletion_url_all }"/></p>
+  <div class="xblockcompletion-success-msg" id="xblockcompletion-success-msg"></div>
+  <div class="xblockcompletion-warning-msg" id="xblockcompletion-warning-msg"></div>
+  <div class="xblockcompletion-error-msg" id="xblockcompletion-error-msg"></div>
+  <% tutorial_link_text = _("watch the tutorial") %>
+  <% tutorial_link = f'<a target="_blank" href="https://youtu.be/v4ecUuetKDo">{tutorial_link_text}</a>' %>
+  <p>${_("For better data visualization and handling of the data in Excel, you can {link}.").format(link=tutorial_link) | n}</p>
+</div>
