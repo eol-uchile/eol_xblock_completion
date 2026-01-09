@@ -1,0 +1,62 @@
+# English translations for EOL.
+# Copyright (C) 2026 EOL
+# This file is distributed under the same license as the EOL project.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: EOL 1.0.0\n"
+"Report-Msgid-Bugs-To: eol-ing@uchile.cl\n"
+"POT-Creation-Date: 2026-01-09 18:26+0000\n"
+"PO-Revision-Date: 2026-01-07 14:39+0000\n"
+"Last-Translator: EOL <eol-ing@uchile.cl>\n"
+"Language: en\n"
+"Language-Team: en <LL@li.org>\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.17.0\n"
+
+#: xblockcompletion/templates/instructor/instructor_dashboard_2/eol_xblock_completion.html:16
+msgid "Problem report"
+msgstr ""
+
+#: xblockcompletion/templates/instructor/instructor_dashboard_2/eol_xblock_completion.html:17
+msgid "There are two ways to generate a problem report in CSV format"
+msgstr ""
+
+#: xblockcompletion/templates/instructor/instructor_dashboard_2/eol_xblock_completion.html:20
+#: xblockcompletion/templates/instructor/instructor_dashboard_2/eol_xblock_completion.html:26
+msgid "Summary Report"
+msgstr ""
+
+#: xblockcompletion/templates/instructor/instructor_dashboard_2/eol_xblock_completion.html:20
+msgid ""
+"Generates a report of all problem-type blocks showing attempts, obtained "
+"score and possible score of each student."
+msgstr ""
+
+#: xblockcompletion/templates/instructor/instructor_dashboard_2/eol_xblock_completion.html:23
+#: xblockcompletion/templates/instructor/instructor_dashboard_2/eol_xblock_completion.html:27
+msgid "Complete Report"
+msgstr ""
+
+#: xblockcompletion/templates/instructor/instructor_dashboard_2/eol_xblock_completion.html:23
+msgid ""
+"Generates a report of all questions in problem-type blocks showing the "
+"question, students answer, correct answer, attempts, obtained score and "
+"block possible score for each student."
+msgstr ""
+
+#: xblockcompletion/templates/instructor/instructor_dashboard_2/eol_xblock_completion.html:31
+msgid "watch the tutorial"
+msgstr ""
+
+#: xblockcompletion/templates/instructor/instructor_dashboard_2/eol_xblock_completion.html:33
+#, python-brace-format
+msgid ""
+"For better data visualization and handling of the data in Excel, you can "
+"{link}."
+msgstr ""
+
