@@ -25,6 +25,6 @@ update_translations: ## update strings to be translated
 	rm xblockcompletion/locale/django.pot
 	rm xblockcompletion/locale/django-js.pot
 
-compile_translations: ## compile .mo files into .po files
+compile_translations: ## compile .po files into .mo files
 	pybabel compile -f -D django -d xblockcompletion/locale/; \
 	pybabel compile -f -D djangojs -d xblockcompletion/locale/
