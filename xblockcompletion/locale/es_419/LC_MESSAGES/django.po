@@ -37,7 +37,7 @@ msgid ""
 "score and possible score of each student."
 msgstr ""
 "Genera un reporte de todos los bloques tipo pregunta mostrando los "
-"intentos, puntaje ganado y puntaje posible del bloque de cada estudiante."
+"intentos, puntaje obtenido y puntaje posible del bloque de cada estudiante."
 
 #: xblockcompletion/templates/instructor/instructor_dashboard_2/eol_xblock_completion.html:23
 #: xblockcompletion/templates/instructor/instructor_dashboard_2/eol_xblock_completion.html:27
@@ -52,7 +52,7 @@ msgid ""
 msgstr ""
 "Genera un reporte de todas las preguntas de los bloques tipo pregunta "
 "mostrando la pregunta, respuesta del estudiante, respuesta correcta, "
-"intentos, puntaje ganado y puntaje posible del bloque."
+"intentos, puntaje obtenido y puntaje posible del bloque."
 
 #: xblockcompletion/templates/instructor/instructor_dashboard_2/eol_xblock_completion.html:31
 msgid "watch the tutorial"
