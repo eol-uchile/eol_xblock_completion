@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: EOL 1.0.0\n"
 "Report-Msgid-Bugs-To: eol-ing@uchile.cl\n"
-"POT-Creation-Date: 2026-01-09 18:26+0000\n"
+"POT-Creation-Date: 2026-01-19 19:36+0000\n"
 "PO-Revision-Date: 2026-01-07 14:39+0000\n"
 "Last-Translator: EOL <eol-ing@uchile.cl>\n"
 "Language: en\n"
@@ -17,4 +17,12 @@ msgstr ""
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Generated-By: Babel 2.17.0\n"
+
+#: xblockcompletion/static/xblockcompletion/js/xblockcompletion.js:6
+msgid "Error generating problem report. Please refresh the page and try again."
+msgstr ""
+
+#: xblockcompletion/static/xblockcompletion/js/xblockcompletion.js:30
+msgid "The report is already being generated, please wait."
+msgstr ""
 

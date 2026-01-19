@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: EOL 1.0.0\n"
 "Report-Msgid-Bugs-To: eol-ing@uchile.cl\n"
-"POT-Creation-Date: 2026-01-09 18:26+0000\n"
+"POT-Creation-Date: 2026-01-19 19:36+0000\n"
 "PO-Revision-Date: 2026-01-07 14:39+0000\n"
 "Last-Translator: EOL <eol-ing@uchile.cl>\n"
 "Language: en\n"
@@ -47,16 +47,5 @@ msgid ""
 "Generates a report of all questions in problem-type blocks showing the "
 "question, students answer, correct answer, attempts, obtained score and "
 "block possible score for each student."
-msgstr ""
-
-#: xblockcompletion/templates/instructor/instructor_dashboard_2/eol_xblock_completion.html:31
-msgid "watch the tutorial"
-msgstr ""
-
-#: xblockcompletion/templates/instructor/instructor_dashboard_2/eol_xblock_completion.html:33
-#, python-brace-format
-msgid ""
-"For better data visualization and handling of the data in Excel, you can "
-"{link}."
 msgstr ""
 

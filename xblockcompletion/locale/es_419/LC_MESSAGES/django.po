@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: EOL 1.0.0\n"
 "Report-Msgid-Bugs-To: eol-ing@uchile.cl\n"
-"POT-Creation-Date: 2026-01-09 18:26+0000\n"
+"POT-Creation-Date: 2026-01-19 19:36+0000\n"
 "PO-Revision-Date: 2026-01-07 14:39+0000\n"
 "Last-Translator: EOL <eol-ing@uchile.cl>\n"
 "Language: es_419\n"
@@ -37,7 +37,8 @@ msgid ""
 "score and possible score of each student."
 msgstr ""
 "Genera un reporte de todos los bloques tipo pregunta mostrando los "
-"intentos, puntaje obtenido y puntaje posible del bloque de cada estudiante."
+"intentos, puntaje obtenido y puntaje posible del bloque de cada "
+"estudiante."
 
 #: xblockcompletion/templates/instructor/instructor_dashboard_2/eol_xblock_completion.html:23
 #: xblockcompletion/templates/instructor/instructor_dashboard_2/eol_xblock_completion.html:27
@@ -53,17 +54,4 @@ msgstr ""
 "Genera un reporte de todas las preguntas de los bloques tipo pregunta "
 "mostrando la pregunta, respuesta del estudiante, respuesta correcta, "
 "intentos, puntaje obtenido y puntaje posible del bloque."
-
-#: xblockcompletion/templates/instructor/instructor_dashboard_2/eol_xblock_completion.html:31
-msgid "watch the tutorial"
-msgstr "ver este tutorial"
-
-#: xblockcompletion/templates/instructor/instructor_dashboard_2/eol_xblock_completion.html:33
-#, python-brace-format
-msgid ""
-"For better data visualization and handling of the data in Excel, you can "
-"{link}."
-msgstr ""
-"Para una mejor visualización y manejo de los datos en Excel, puedes "
-"{link}."
 
