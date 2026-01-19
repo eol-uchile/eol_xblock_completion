@@ -1,9 +1,9 @@
 <%page expression_filter="h"/>
 <%namespace name='static' file='/static_content.html'/>
 <%!
-from django.utils.translation import ugettext as _
 import urllib
 from django.urls import reverse
+from django.utils.translation import ugettext as _
 %>
 <%
 xblockcompletion_url_resumen = '{}?{}'.format(reverse('xblockcompletion-data:data'), urllib.parse.urlencode({'format': 'resumen', 'course': str(course.id)}))
@@ -28,7 +28,4 @@ xblockcompletion_url_all = '{}?{}'.format(reverse('xblockcompletion-data:data'),
   <div class="xblockcompletion-success-msg" id="xblockcompletion-success-msg"></div>
   <div class="xblockcompletion-warning-msg" id="xblockcompletion-warning-msg"></div>
   <div class="xblockcompletion-error-msg" id="xblockcompletion-error-msg"></div>
-  <% tutorial_link_text = _("watch the tutorial") %>
-  <% tutorial_link = f'<a target="_blank" href="https://youtu.be/v4ecUuetKDo">{tutorial_link_text}</a>' %>
-  <p>${_("For better data visualization and handling of the data in Excel, you can {link}.").format(link=tutorial_link) | n}</p>
 </div>
