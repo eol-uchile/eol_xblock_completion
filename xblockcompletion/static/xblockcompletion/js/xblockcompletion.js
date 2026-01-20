@@ -3,7 +3,7 @@ function generate_report_xblockcompletion(input){
   var error_div = document.getElementById('xblockcompletion-error-msg');
   var warning_div = document.getElementById('xblockcompletion-warning-msg');
   var url = input.dataset.endpoint;
-  var errorMessage = 'Error en generar reporte de problemas. Por favor actualice la página e intente de nuevo.';
+  var errorMessage = gettext('Error generating problem report. Please refresh the page and try again.');
   return $.ajax({
       type: 'GET',
       dataType: 'json',
@@ -27,7 +27,7 @@ function generate_report_xblockcompletion(input){
           }
           else{
               if (data.error_task) {
-                  warning_div.textContent = 'El reporte ya se esta generando, por favor espere.';
+                  warning_div.textContent = gettext('The report is already being generated, please wait.');
                   warning_div.style.display = 'block';
                   error_div.style.display = 'none';
                   success_div.style.display = 'none';
