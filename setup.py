@@ -2,7 +2,7 @@ import setuptools
 
 setuptools.setup(
     name="xblockcompletion",
-    version="1.1.0",
+    version="1.1.1",
     author="Oficina EOL UChile",
     author_email="eol-ing@uchile.cl",
     description="EOL Xbloxk Completion",
