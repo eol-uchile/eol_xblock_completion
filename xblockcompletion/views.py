@@ -375,6 +375,7 @@ class XblockCompletionView(View):
         student_states  = self.get_user_states(block.location.course_key, block.location)
         for response in student_states:
             user_state = json.loads(response['state'])
+            answer_id = None
             if 'student_answers' not in user_state:
                 continue
             try:
@@ -456,7 +457,7 @@ class XblockCompletionView(View):
                 report['indiv_id'] = response['indiv_id']
                 report['attempts'] = user_state.get('attempts', '')
                 # Points earned by the user on a particular question
-                report['gained'] = pts_question if user_state['correct_map'][answer_id]['correctness'] == "correct" else float(0)
+                report['gained'] = pts_question if user_state.get('correct_map',{}).get(answer_id,{}).get('correctness',{}) == "correct" else float(0)
                 # Possible points for each question
                 report['possible'] = pts_question
                 report['total'] = round(float(total_points), 2)
